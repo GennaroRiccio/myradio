@@ -1,9 +1,10 @@
 [package]
 name = "myradio"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 description = "TUI per ascoltare radio in streaming via Radio Browser API"
 license = "MIT"
+authors = ["Gennaro Riccio"]
 rust-version = "1.85"
 
 [dependencies]

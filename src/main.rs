@@ -12,7 +12,7 @@ use myradio::audio::{self, EngineHandle};
 use myradio::ui;
 
 /// Durata massima del banner di avvio (si chiude anche al primo tasto).
-const SPLASH_DURATION: Duration = Duration::from_secs(2);
+const SPLASH_DURATION: Duration = Duration::from_secs(10);
 
 fn main() -> Result<()> {
     let _log_guard = init_tracing();

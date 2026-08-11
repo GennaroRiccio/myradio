@@ -22,7 +22,11 @@ On startup the app shows a splash screen with an ASCII-art `myradio` logo, the
 version, and an animated FM tuner scanning stations. The splash is dismissed by
 any key or after a few seconds.
 
-### Release builds for Linux, Windows and macOS
+## Demo
+
+<video src="demo/myradio_demo.mp4" controls width="640" height="480"></video>
+
+## Release builds for Linux, Windows and macOS
 
 `scripts/build-release.sh` builds and copies the final binary into `dist/`:
 
