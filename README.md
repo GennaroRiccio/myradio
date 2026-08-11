@@ -26,6 +26,12 @@ any key or after a few seconds.
 
 <video src="demo/myradio_demo.mp4" controls width="640" height="480"></video>
 
+### Screenshots
+
+![Demo 1](images/demo1.png)
+![Demo 2](images/demo2.png)
+![Demo 3](images/demo3.png)
+
 ## Release builds for Linux, Windows and macOS
 
 `scripts/build-release.sh` builds and copies the final binary into `dist/`:
