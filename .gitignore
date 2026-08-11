@@ -1,0 +1,38 @@
+# Local helper script
+oc.sh
+
+# Build and release artifacts
+/target/
+/dist/
+/release/
+/out/
+
+# Rust build outputs
+*.o
+*.a
+*.so
+*.dylib
+*.rlib
+*.dll
+*.exe
+*.pdb
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Editor and IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*

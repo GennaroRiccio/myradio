@@ -1,0 +1,50 @@
+[package]
+name = "myradio"
+version = "1.1.0"
+edition = "2024"
+description = "TUI per ascoltare radio in streaming via Radio Browser API"
+license = "MIT"
+rust-version = "1.85"
+
+[dependencies]
+radiobrowser = { version = "0.6.1", default-features = false, features = ["blocking", "rustls"] }
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp"] }
+ratatui = "0.30.2"
+crossterm = "0.29"
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-all"] }
+anyhow = "1"
+thiserror = "2"
+crossbeam-channel = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-appender = "0.2"
+
+[dev-dependencies]
+ratatui = { version = "0.30.2", features = ["macros"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Falso positivo di Clippy 1.95 su associat functions come `EngineHandle::broken()`.
+struct_field_names = "allow"
+# L'app tiene diversi flag di stato della UI (splash, loading, visualizer, exit).
+struct_excessive_bools = "allow"
+# Conversioni numeriche in contesti di dimensioni buffer e percentuali, dove il
+# valore è sempre nell'intervallo previsto.
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+
+[lints.rustdoc]
+missing_docs = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
