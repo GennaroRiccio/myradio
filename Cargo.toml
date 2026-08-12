@@ -1,6 +1,6 @@
 [package]
 name = "myradio"
-version = "1.1.1"
+version = "1.2.1"
 edition = "2024"
 description = "TUI per ascoltare radio in streaming via Radio Browser API"
 license = "MIT"
