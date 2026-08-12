@@ -270,8 +270,12 @@ fn centered(text: &str, width: usize, style: Style) -> Line<'static> {
 
 fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = match &app.now_playing {
-        Some(station) => format!(" myradio v{} — {} ", app_version(), station.name),
-        None => format!(" myradio v{} ", app_version()),
+        Some(station) => format!(
+            " myradio v{} — {} By Gennaro Riccio",
+            app_version(),
+            station.name
+        ),
+        None => format!(" myradio v{} By Gennaro Riccio ", app_version()),
     };
     let block = Block::default()
         .borders(Borders::ALL)

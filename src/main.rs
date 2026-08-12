@@ -15,6 +15,12 @@ use myradio::ui;
 /// Durata massima del banner di avvio (si chiude anche al primo tasto).
 const SPLASH_DURATION: Duration = Duration::from_secs(10);
 
+/// Tick rapido per stati animati/attivi (splash, visualizer, loading).
+const ACTIVE_TICK: Duration = Duration::from_millis(30);
+
+/// Tick più lento quando la UI è stabile, per ridurre uso CPU.
+const IDLE_TICK: Duration = Duration::from_millis(120);
+
 fn main() -> Result<()> {
     let _log_guard = init_tracing();
     let terminal = ratatui::init();
@@ -74,7 +80,13 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
             app.dismiss_splash();
         }
 
-        if event::poll(Duration::from_millis(30))? {
+        let tick = if app.splash || app.playback.is_active() || app.loading {
+            ACTIVE_TICK
+        } else {
+            IDLE_TICK
+        };
+
+        if event::poll(tick)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if app.splash {

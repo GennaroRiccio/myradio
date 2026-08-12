@@ -438,14 +438,12 @@ impl Read for InterruptibleReader {
             return Ok(0);
         }
         let count = buf.len().min(self.buffer.len());
-        let mut consumed = Vec::with_capacity(count);
-        for byte in self.buffer.drain(..count) {
-            consumed.push(byte);
-        }
-        for (dst, src) in buf.iter_mut().zip(&consumed) {
-            *dst = *src;
-        }
-        for byte in consumed {
+        for dst in buf.iter_mut().take(count) {
+            let byte = self
+                .buffer
+                .pop_front()
+                .expect("count è calcolato dalla lunghezza del buffer");
+            *dst = byte;
             self.remember(byte);
             self.pos += 1;
         }
@@ -498,11 +496,11 @@ impl Seek for InterruptibleReader {
                     break;
                 }
                 let take = forward.min(self.buffer.len() as u64) as usize;
-                let mut skipped = Vec::with_capacity(take);
-                for byte in self.buffer.drain(..take) {
-                    skipped.push(byte);
-                }
-                for byte in skipped {
+                for _ in 0..take {
+                    let byte = self
+                        .buffer
+                        .pop_front()
+                        .expect("take è calcolato dalla lunghezza del buffer");
                     self.remember(byte);
                     self.pos += 1;
                 }

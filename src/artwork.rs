@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -43,6 +44,7 @@ const BACKDROP: [u8; 3] = [0, 0, 0];
 pub struct ArtworkStore {
     cached: HashMap<String, RgbaImage>,
     pending: HashSet<String>,
+    failed: HashSet<String>,
 }
 
 impl ArtworkStore {
@@ -64,6 +66,7 @@ impl ArtworkStore {
             if station.favicon.trim().is_empty()
                 || self.pending.contains(&station.id)
                 || self.cached.contains_key(&station.id)
+                || self.failed.contains(&station.id)
             {
                 continue;
             }
@@ -83,8 +86,10 @@ impl ArtworkStore {
     pub fn store(&mut self, id: String, image: Option<RgbaImage>) {
         self.pending.remove(&id);
         let Some(image) = image else {
+            self.failed.insert(id);
             return;
         };
+        self.failed.remove(&id);
         if !self.cached.contains_key(&id) && self.cached.len() >= MAX_CACHED {
             if let Some(old) = self.cached.keys().next().cloned() {
                 self.cached.remove(&old);
@@ -100,14 +105,7 @@ fn fetch_artwork(url: &str, id: &str) -> Option<RgbaImage> {
         return Some(image);
     }
 
-    let response = reqwest::blocking::Client::builder()
-        .timeout(FETCH_TIMEOUT)
-        .user_agent(concat!("myradio/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .ok()?
-        .get(url)
-        .send()
-        .ok()?;
+    let response = artwork_client()?.get(url).send().ok()?;
 
     if !response.status().is_success() {
         return None;
@@ -127,6 +125,20 @@ fn fetch_artwork(url: &str, id: &str) -> Option<RgbaImage> {
     let image = decode(&body)?;
     let _ = write_cache(id, &body);
     Some(image)
+}
+
+/// Client HTTP condiviso per il download artwork (evita ricostruzioni ripetute).
+fn artwork_client() -> Option<&'static reqwest::blocking::Client> {
+    static CLIENT: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .timeout(FETCH_TIMEOUT)
+                .user_agent(concat!("myradio/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .ok()
+        })
+        .as_ref()
 }
 
 /// Decodifica i byte dell'immagine in RGBA8.
