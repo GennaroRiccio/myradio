@@ -95,7 +95,7 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
                         app.handle_input(key);
                     }
                 }
-                Event::Mouse(mouse) if !app.splash => app.handle_mouse(mouse),
+                Event::Mouse(mouse) if !app.splash && !app.menu_open => app.handle_mouse(mouse),
                 _ => {}
             }
         }

@@ -7,7 +7,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Paragraph, Row, Sparkline, Table, TableState, Wrap,
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, TableState, Wrap,
 };
 
 use crate::app::{App, Focus};
@@ -84,6 +84,102 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     }
     render_status(frame, chunks[4], app);
     render_help(frame, chunks[5]);
+
+    if app.menu_open {
+        render_menu(frame, area);
+    }
+}
+
+/// Una colonna del menu comandi: titolo ed elenco di coppie (tasto, descrizione).
+struct MenuColumn {
+    title: &'static str,
+    items: &'static [(&'static str, &'static str)],
+}
+
+/// Voci del menu raggruppate per categoria.
+const MENU_COLUMNS: &[MenuColumn] = &[
+    MenuColumn {
+        title: " Navigazione ",
+        items: &[
+            ("↑/↓ o j/k", "muovi selezione"),
+            ("Tab", "prossimo campo"),
+            ("Esc", "torna ai risultati"),
+            ("/ o i", "focus nome"),
+            ("t", "focus tag"),
+        ],
+    },
+    MenuColumn {
+        title: " Riproduzione ",
+        items: &[
+            ("Invio", "play"),
+            ("p/Spazio", "pausa/resume"),
+            ("s", "stop"),
+            ("+/-", "volume"),
+            ("v", "visualizzatore"),
+        ],
+    },
+    MenuColumn {
+        title: " Preferiti ",
+        items: &[("f", "aggiungi preferito"), ("F", "lista preferiti")],
+    },
+    MenuColumn {
+        title: " Varie ",
+        items: &[
+            ("r", "ripeti ricerca"),
+            ("m", "apri/chiudi menu"),
+            ("q/Ctrl-C", "esci"),
+            ("mouse", "click e scroll"),
+        ],
+    },
+];
+
+/// Mostra il popup dei comandi, centrato sopra l'interfaccia.
+fn render_menu(frame: &mut Frame<'_>, area: Rect) {
+    let popup = centered_rect(area, 110, 15);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Comandi ");
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let columns = Layout::horizontal([Constraint::Percentage(25); 4]).split(inner);
+    for (column, column_area) in MENU_COLUMNS.iter().zip(columns.iter()) {
+        let lines: Vec<Line> = column
+            .items
+            .iter()
+            .map(|(key, description)| {
+                Line::from(vec![
+                    Span::styled(
+                        *key,
+                        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(*description, Style::new().dim()),
+                ])
+            })
+            .collect();
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)).block(Block::default().title(column.title)),
+            *column_area,
+        );
+    }
+}
+
+/// Calcola un rettangolo centrato nell'area data, entro i limiti del terminale.
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 /// Banner di avvio animato: le lettere compaiono una a una, poi un'onda di
@@ -625,7 +721,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " / i: ricerca · t: tag · f: preferito · F: lista preferiti · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci · mouse: click = play, scroll",
+        " m: menu · q: esci",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);
@@ -696,6 +792,17 @@ mod tests {
         let complete = render_at(700);
         assert_eq!(revealing.contains('█'), complete.contains('█'));
         assert_ne!(revealing.len(), complete.len(), "il banner deve animarsi");
+    }
+
+    #[test]
+    fn renders_menu_popup() {
+        let mut app = test_app();
+        app.menu_open = true;
+        let output = render_once(&mut app);
+        assert!(output.contains("Comandi"));
+        assert!(output.contains("aggiungi preferito"));
+        assert!(output.contains("muovi selezione"));
+        assert!(output.contains("pausa/resume"));
     }
 
     #[test]

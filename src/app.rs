@@ -76,6 +76,8 @@ pub struct App {
     pub search_results: Vec<Station>,
     /// `true` se la tabella mostra i preferiti invece dei risultati.
     pub showing_favorites: bool,
+    /// `true` mentre è aperto il menu dei comandi.
+    pub menu_open: bool,
     /// Indice della stazione selezionata.
     pub selected: usize,
     /// `true` mentre una ricerca è in corso.
@@ -130,6 +132,7 @@ impl App {
             favorites: Vec::new(),
             search_results: Vec::new(),
             showing_favorites: false,
+            menu_open: false,
             store: FavoritesStore::new(),
             selected: 0,
             loading: false,
@@ -242,10 +245,22 @@ impl App {
         }
     }
 
+    /// Apre o chiude il menu dei comandi.
+    pub fn toggle_menu(&mut self) {
+        self.menu_open = !self.menu_open;
+    }
+
     /// Elabora un evento da tastiera.
     pub fn handle_input(&mut self, key: KeyEvent) {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.should_exit = true;
+            return;
+        }
+        if self.menu_open {
+            match key.code {
+                KeyCode::Char('m' | 'M') | KeyCode::Esc | KeyCode::Enter => self.menu_open = false,
+                _ => {}
+            }
             return;
         }
         if self.editing() {
@@ -258,6 +273,7 @@ impl App {
             KeyCode::Char('t') => self.focus = Focus::Tag,
             KeyCode::Char('f') => self.toggle_favorite(),
             KeyCode::Char('F') => self.toggle_favorites_view(),
+            KeyCode::Char('m' | 'M') => self.toggle_menu(),
             KeyCode::Char('r') => self.run_search(),
             KeyCode::Char('v') => self.visualizer = !self.visualizer,
             KeyCode::Char('p' | ' ') => self.toggle_play_or_play_selected(),
@@ -489,6 +505,22 @@ impl App {
         // in volo): i risultati arrivano sul canale e vengono processati sopra.
         self.artworks.request_missing(&self.stations, &self.msg_tx);
     }
+
+    /// Salva i preferiti su disco.
+    ///
+    /// Questo viene chiamato automaticamente nel `Drop` per garantire la
+    /// persistenza all'uscita dell'app.
+    pub fn save_favorites(&self) {
+        if let Err(error) = self.store.save(&self.favorites) {
+            tracing::warn!("errore salvataggio preferiti all'uscita: {error}");
+        }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.save_favorites();
+    }
 }
 
 #[cfg(test)]
@@ -680,6 +712,27 @@ mod tests {
         app.load_favorites();
         assert!(!app.showing_favorites);
         assert!(app.stations.is_empty());
+    }
+
+    #[test]
+    fn key_m_toggles_menu() {
+        let mut app = app_with_stations(0);
+        press(&mut app, 'm');
+        assert!(app.menu_open);
+        press(&mut app, 'm');
+        assert!(!app.menu_open);
+    }
+
+    #[test]
+    fn menu_blocks_action_keys_until_closed() {
+        let mut app = app_with_stations(2);
+        app.menu_open = true;
+        press(&mut app, 'j');
+        assert_eq!(app.selected, 0, "col menu aperto i comandi sono ignorati");
+        press(&mut app, 'q');
+        assert!(!app.should_exit(), "q non deve uscire col menu aperto");
+        press(&mut app, 'm');
+        assert!(!app.menu_open);
     }
 
     #[test]
