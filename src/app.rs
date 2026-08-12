@@ -4,8 +4,9 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Instant;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use image::RgbaImage;
+use ratatui::layout::{Position, Rect};
 
 use crate::artwork::ArtworkStore;
 use crate::audio::{DEFAULT_VOLUME, EngineHandle, PlaybackState};
@@ -40,6 +41,17 @@ pub enum Focus {
     Tag,
     /// Tabella dei risultati.
     Results,
+}
+
+/// Aree interattive della UI aggiornate a ogni frame, in coordinate schermo.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UiAreas {
+    /// Riga del campo di ricerca per nome.
+    pub query: Rect,
+    /// Riga del campo di filtro per tag.
+    pub tag: Rect,
+    /// Area interna della tabella dei risultati.
+    pub results: Rect,
 }
 
 /// Stato complessivo dell'applicazione.
@@ -85,6 +97,11 @@ pub struct App {
     /// Istante di avvio del banner (per l'animazione).
     pub splash_started: Instant,
 
+    /// Aree interattive della UI, aggiornate a ogni frame dal rendering.
+    pub areas: UiAreas,
+    /// Prima riga visibile della tabella risultati (per mappare click -> stazione).
+    pub results_offset: usize,
+
     should_exit: bool,
 }
 
@@ -111,6 +128,8 @@ impl App {
             artworks: ArtworkStore::default(),
             splash: true,
             splash_started: Instant::now(),
+            areas: UiAreas::default(),
+            results_offset: 0,
             should_exit: false,
         };
         app.engine.set_volume(app.volume);
@@ -211,6 +230,70 @@ impl App {
         } else {
             (self.selected + 1).min(len - 1)
         };
+    }
+
+    /// Elabora un evento del mouse.
+    pub fn handle_mouse(&mut self, event: MouseEvent) {
+        let position = Position::new(event.column, event.row);
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.handle_click(position),
+            MouseEventKind::ScrollUp if self.areas.results.contains(position) => {
+                self.move_selection(true);
+            }
+            MouseEventKind::ScrollDown if self.areas.results.contains(position) => {
+                self.move_selection(false);
+            }
+            _ => {}
+        }
+    }
+
+    /// Gestisce un click con il tasto sinistro su un elemento interattivo.
+    fn handle_click(&mut self, position: Position) {
+        if self.areas.query.contains(position) {
+            self.focus = Focus::Query;
+        } else if self.areas.tag.contains(position) {
+            self.focus = Focus::Tag;
+        } else if self.areas.results.contains(position) {
+            self.focus = Focus::Results;
+            if self.select_row_at(position.y, self.areas.results) {
+                self.play_on_click();
+            }
+        }
+    }
+
+    /// Seleziona la stazione corrispondente alla riga di schermo `row` della tabella.
+    ///
+    /// Restituisce `true` se il click ha colpito una riga con una stazione valida.
+    fn select_row_at(&mut self, row: u16, results: Rect) -> bool {
+        if row < results.y || row >= results.y + results.height {
+            return false;
+        }
+        let local = row - results.y;
+        if local == 0 {
+            return false;
+        }
+        let index = self.results_offset + usize::from(local - 1);
+        if index < self.stations.len() {
+            self.selected = index;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Avvia la riproduzione della stazione appena selezionata col mouse, senza
+    /// riavviare uno stream già attivo sulla stessa stazione.
+    fn play_on_click(&mut self) {
+        let Some(station) = self.stations.get(self.selected).cloned() else {
+            return;
+        };
+        let is_current = self
+            .now_playing
+            .as_ref()
+            .is_some_and(|now| now.id == station.id);
+        if !is_current {
+            self.play_selected();
+        }
     }
 
     /// Avvia una ricerca in un thread di lavoro.
@@ -317,5 +400,136 @@ impl App {
         // Avvia man mano i download di artwork mancanti (al più MAX_IN_FLIGHT
         // in volo): i risultati arrivano sul canale e vengono processati sopra.
         self.artworks.request_missing(&self.stations, &self.msg_tx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::MouseEvent;
+    use ratatui::layout::Rect;
+    use std::sync::mpsc;
+
+    fn station(id: &str) -> Station {
+        Station {
+            id: id.to_string(),
+            name: id.to_string(),
+            url_resolved: "http://example/stream".to_string(),
+            url: "http://example/stream".to_string(),
+            favicon: String::new(),
+            homepage: String::new(),
+            country: "IT".to_string(),
+            state: String::new(),
+            language: String::new(),
+            codec: "MP3".to_string(),
+            bitrate: 128,
+            tags: Vec::new(),
+            votes: 0,
+            hls: false,
+        }
+    }
+
+    fn app_with_stations(n: usize) -> App {
+        let (tx, rx) = mpsc::channel();
+        let mut app = App::new(tx, rx, EngineHandle::broken());
+        app.dismiss_splash();
+        app.stations = (0..n).map(|i| station(&format!("s{i}"))).collect();
+        app
+    }
+
+    fn click_at(app: &mut App, x: u16, y: u16) {
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::empty(),
+        });
+    }
+
+    #[test]
+    fn mouse_click_focuses_query_field() {
+        let mut app = app_with_stations(0);
+        app.focus = Focus::Results;
+        app.areas.query = Rect::new(2, 4, 40, 1);
+        app.areas.tag = Rect::new(2, 5, 40, 1);
+        click_at(&mut app, 5, 4);
+        assert_eq!(app.focus, Focus::Query);
+    }
+
+    #[test]
+    fn mouse_click_focuses_tag_field() {
+        let mut app = app_with_stations(0);
+        app.focus = Focus::Query;
+        app.areas.query = Rect::new(2, 4, 40, 1);
+        app.areas.tag = Rect::new(2, 5, 40, 1);
+        click_at(&mut app, 5, 5);
+        assert_eq!(app.focus, Focus::Tag);
+    }
+
+    #[test]
+    fn mouse_click_selects_row_in_results() {
+        let mut app = app_with_stations(5);
+        app.areas.results = Rect::new(0, 10, 40, 10);
+        app.results_offset = 2;
+        app.focus = Focus::Results;
+        click_at(&mut app, 3, 12);
+        assert_eq!(app.selected, 3);
+    }
+
+    #[test]
+    fn mouse_click_starts_playback_of_row() {
+        let mut app = app_with_stations(3);
+        app.areas.results = Rect::new(0, 10, 40, 10);
+        app.focus = Focus::Results;
+        click_at(&mut app, 3, 12);
+        assert_eq!(app.selected, 1);
+        assert_eq!(app.playback, PlaybackState::Connecting);
+        assert_eq!(app.now_playing.as_ref().map(|s| s.id.as_str()), Some("s1"));
+    }
+
+    #[test]
+    fn mouse_click_on_active_station_does_not_restart() {
+        let mut app = app_with_stations(3);
+        app.areas.results = Rect::new(0, 10, 40, 10);
+        app.selected = 1;
+        app.now_playing = Some(station("s1"));
+        app.playback = PlaybackState::Playing;
+        click_at(&mut app, 3, 12);
+        assert_eq!(app.playback, PlaybackState::Playing);
+        assert_eq!(app.now_playing.as_ref().map(|s| s.id.as_str()), Some("s1"));
+    }
+
+    #[test]
+    fn mouse_click_on_header_keeps_selection() {
+        let mut app = app_with_stations(5);
+        app.areas.results = Rect::new(0, 10, 40, 10);
+        app.selected = 4;
+        click_at(&mut app, 3, 10);
+        assert_eq!(app.selected, 4);
+    }
+
+    #[test]
+    fn mouse_scroll_moves_selection() {
+        let mut app = app_with_stations(5);
+        app.areas.results = Rect::new(0, 10, 40, 10);
+        app.selected = 0;
+        let scroll = |app: &mut App, down: bool| {
+            app.handle_mouse(MouseEvent {
+                kind: if down {
+                    MouseEventKind::ScrollDown
+                } else {
+                    MouseEventKind::ScrollUp
+                },
+                column: 3,
+                row: 11,
+                modifiers: KeyModifiers::empty(),
+            });
+        };
+        scroll(&mut app, true);
+        assert_eq!(app.selected, 1);
+        scroll(&mut app, true);
+        assert_eq!(app.selected, 2);
+        scroll(&mut app, false);
+        assert_eq!(app.selected, 1);
     }
 }

@@ -4,7 +4,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
+use crossterm::execute;
 use ratatui::DefaultTerminal;
 
 use myradio::app::{App, Msg};
@@ -51,6 +52,7 @@ fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let (msg_tx, msg_rx) = mpsc::channel();
 
     let engine = match audio::spawn(msg_tx.clone()) {
@@ -72,18 +74,21 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
         }
 
         if event::poll(Duration::from_millis(30))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if app.splash {
                         app.dismiss_splash();
                     } else {
                         app.handle_input(key);
                     }
                 }
+                Event::Mouse(mouse) if !app.splash => app.handle_mouse(mouse),
+                _ => {}
             }
         }
         app.process_messages();
     }
 
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     Ok(())
 }

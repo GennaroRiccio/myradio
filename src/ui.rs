@@ -301,11 +301,15 @@ fn focus_label(focused: bool, label: &'static str, fallback: &'static str) -> (S
     (text, focused)
 }
 
-fn render_search(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(" Ricerca ");
+
+    let inner = block.inner(area);
+    app.areas.query = Rect::new(inner.x, inner.y, inner.width, 1);
+    app.areas.tag = Rect::new(inner.x, inner.y.saturating_add(1), inner.width, 1);
 
     let (query_label, query_focused) = focus_label(app.focus == Focus::Query, "Nome", "Nome ");
     let (tag_label, tag_focused) = focus_label(app.focus == Focus::Tag, "Tag", "Tag  ");
@@ -351,7 +355,7 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(text).block(block), area);
 }
 
-fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn render_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let chunks =
         Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)]).split(area);
 
@@ -359,7 +363,7 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
     render_info(frame, chunks[1], app);
 }
 
-fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = if app.loading {
         " Risultati — ricerca in corso… ".to_string()
     } else {
@@ -369,6 +373,8 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(title);
+
+    app.areas.results = block.inner(area);
 
     if app.stations.is_empty() {
         let hint = if app.loading {
@@ -430,6 +436,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
     let mut state = TableState::new().with_selected(Some(app.selected));
     frame.render_stateful_widget(table, area, &mut state);
+    app.results_offset = state.offset();
 }
 
 fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -597,7 +604,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " / i: ricerca · t: tag · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci",
+        " / i: ricerca · t: tag · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci · mouse: click = play, scroll",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);
@@ -648,7 +655,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let mut app = App::new(tx, rx, EngineHandle::broken());
         let output = render_once(&mut app);
-        assert!(output.contains("v1.0.0"));
+        assert!(output.contains(&format!("v{}", super::app_version())));
         assert!(output.contains("Premi un tasto"));
         assert!(output.contains('█'), "l'ASCII art deve essere disegnata");
     }

@@ -3,7 +3,12 @@
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
 (MP3, AAC, OGG/Vorbis, FLAC, WAV), and shows the volume level in real time
-(dBFS meter + level history as a sparkline).
+(dBFS meter + level history as a sparkline). Current version: **1.2.0**.
+
+It is fully usable with the keyboard **and the mouse** (click to focus/search or
+to select and play a station, scroll wheel to navigate), ships with an animated
+splash screen (ASCII-art logo + FM tuner) and renders station artwork with
+half-blocks so it works in any terminal.
 
 ## Build
 
@@ -20,7 +25,7 @@ cargo build --release
 
 On startup the app shows a splash screen with an ASCII-art `myradio` logo, the
 version, and an animated FM tuner scanning stations. The splash is dismissed by
-any key or after a few seconds.
+any key or after 10 seconds.
 
 ## Demo
 
@@ -66,6 +71,14 @@ cargo run --release
 | `v` | toggle the audio visualizer |
 | `q` or `Ctrl-C` | quit |
 
+Mouse support is enabled automatically:
+
+| Mouse | Action |
+|---|---|
+| left-click on a search box | focus that field |
+| left-click on a result row | select and play that station |
+| scroll wheel over the results | move selection up/down |
+
 ## Logs
 
 Logs are written to `logs/` (never to the TUI): one file per day
@@ -80,9 +93,9 @@ recorded.
 - `src/levels.rs` — shared dBFS↔percentage levels
 - `src/artwork.rs` — async favicon download, disk + memory cache, and
   half-block rendering of station artwork (works in any terminal)
-- `src/app.rs` — state machine and input handling
+- `src/app.rs` — state machine and input handling (keyboard + mouse)
 - `src/ui.rs` — ratatui rendering (header, search, results, station info, audio
-  meter/history, status bar, help, startup splash)
+  meter/history, status bar, help, animated startup splash)
 - `src/main.rs` — entry point and logging setup
 
 ## Verification
