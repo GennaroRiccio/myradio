@@ -8,6 +8,7 @@ pub mod app;
 pub mod artwork;
 pub mod audio;
 pub mod error;
+pub mod favorites;
 pub mod levels;
 pub mod radio;
 pub mod ui;

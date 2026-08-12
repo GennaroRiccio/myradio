@@ -11,6 +11,7 @@ use ratatui::layout::{Position, Rect};
 use crate::artwork::ArtworkStore;
 use crate::audio::{DEFAULT_VOLUME, EngineHandle, PlaybackState};
 use crate::error::AppError;
+use crate::favorites::FavoritesStore;
 use crate::levels::SharedLevels;
 use crate::radio::{RadioBrowserProvider, Station, StationProvider};
 
@@ -67,12 +68,21 @@ pub struct App {
     /// Campo della UI attualmente in focus.
     pub focus: Focus,
 
-    /// Risultati dell'ultima ricerca.
+    /// Lista mostrata nella tabella (risultati di ricerca o preferiti).
     pub stations: Vec<Station>,
+    /// Stazioni salvate nei preferiti.
+    pub favorites: Vec<Station>,
+    /// Ultimi risultati di ricerca, per tornare alla lista risultati.
+    pub search_results: Vec<Station>,
+    /// `true` se la tabella mostra i preferiti invece dei risultati.
+    pub showing_favorites: bool,
     /// Indice della stazione selezionata.
     pub selected: usize,
     /// `true` mentre una ricerca è in corso.
     pub loading: bool,
+
+    /// Persistenza dei preferiti su disco.
+    store: FavoritesStore,
 
     /// Stazione in riproduzione, se presente.
     pub now_playing: Option<Station>,
@@ -117,6 +127,10 @@ impl App {
             tag: String::new(),
             focus: Focus::Query,
             stations: Vec::new(),
+            favorites: Vec::new(),
+            search_results: Vec::new(),
+            showing_favorites: false,
+            store: FavoritesStore::new(),
             selected: 0,
             loading: false,
             now_playing: None,
@@ -159,6 +173,75 @@ impl App {
         matches!(self.focus, Focus::Query | Focus::Tag)
     }
 
+    /// Restituisce `true` se la stazione è nei preferiti.
+    #[must_use]
+    pub fn is_favorite(&self, station: &Station) -> bool {
+        self.favorites
+            .iter()
+            .any(|favorite| favorite.id == station.id)
+    }
+
+    /// Carica i preferiti dal disco e, se non vuoti, li mostra all'avvio.
+    pub fn load_favorites(&mut self) {
+        self.favorites = self.store.load();
+        if !self.favorites.is_empty() {
+            self.show_favorites();
+        }
+    }
+
+    /// Mostra la lista dei preferiti nella tabella dei risultati.
+    pub fn show_favorites(&mut self) {
+        self.showing_favorites = true;
+        self.loading = false;
+        self.stations = self.favorites.clone();
+        self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+    }
+
+    /// Alterna la tabella tra preferiti e ultimi risultati di ricerca.
+    pub fn toggle_favorites_view(&mut self) {
+        if self.showing_favorites {
+            self.showing_favorites = false;
+            self.stations = self.search_results.clone();
+            self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+        } else {
+            self.show_favorites();
+        }
+    }
+
+    /// Aggiunge o rimuove la stazione selezionata dai preferiti, salvando su disco.
+    pub fn toggle_favorite(&mut self) {
+        let Some(station) = self.stations.get(self.selected).cloned() else {
+            return;
+        };
+        let name = station.name.clone();
+        let message = if let Some(position) = self
+            .favorites
+            .iter()
+            .position(|favorite| favorite.id == station.id)
+        {
+            self.favorites.remove(position);
+            format!("Rimossa dai preferiti: {name}")
+        } else {
+            self.favorites.push(station);
+            format!("Aggiunta ai preferiti: {name}")
+        };
+
+        if let Err(error) = self.store.save(&self.favorites) {
+            self.status = Some(format!("errore salvataggio preferiti: {error}"));
+        } else {
+            self.status = Some(message);
+        }
+
+        // Se stiamo mostrando i preferiti, la lista cambia subito.
+        if self.showing_favorites {
+            self.show_favorites();
+            if self.favorites.is_empty() {
+                self.showing_favorites = false;
+                self.stations = self.search_results.clone();
+            }
+        }
+    }
+
     /// Elabora un evento da tastiera.
     pub fn handle_input(&mut self, key: KeyEvent) {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -173,6 +256,8 @@ impl App {
             KeyCode::Char('q' | 'Q') => self.should_exit = true,
             KeyCode::Char('/' | 'i') | KeyCode::Esc => self.focus = Focus::Query,
             KeyCode::Char('t') => self.focus = Focus::Tag,
+            KeyCode::Char('f') => self.toggle_favorite(),
+            KeyCode::Char('F') => self.toggle_favorites_view(),
             KeyCode::Char('r') => self.run_search(),
             KeyCode::Char('v') => self.visualizer = !self.visualizer,
             KeyCode::Char('p' | ' ') => self.toggle_play_or_play_selected(),
@@ -304,6 +389,7 @@ impl App {
         self.loading = true;
         self.status = None;
         self.selected = 0;
+        self.showing_favorites = false;
 
         let tx = self.msg_tx.clone();
         let tag = (!tag.is_empty()).then(|| tag.to_string());
@@ -372,7 +458,9 @@ impl App {
         while let Ok(msg) = self.msg_rx.try_recv() {
             match msg {
                 Msg::SearchFinished(Ok(stations)) => {
+                    self.search_results = stations.clone();
                     self.stations = stations;
+                    self.showing_favorites = false;
                     self.selected = 0;
                     self.loading = false;
                 }
@@ -531,5 +619,92 @@ mod tests {
         assert_eq!(app.selected, 2);
         scroll(&mut app, false);
         assert_eq!(app.selected, 1);
+    }
+
+    fn press(app: &mut App, key: char) {
+        app.focus = Focus::Results;
+        app.handle_input(KeyEvent::new(KeyCode::Char(key), KeyModifiers::empty()));
+    }
+
+    fn temp_store() -> FavoritesStore {
+        let uniq = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("orologio di sistema non valido")
+            .as_nanos();
+        FavoritesStore::with_path(std::env::temp_dir().join(format!("myradio-app-fav-{uniq}.json")))
+    }
+
+    #[test]
+    fn favorite_toggle_adds_and_saves() {
+        let mut app = app_with_stations(1);
+        app.store = temp_store();
+        press(&mut app, 'f');
+        assert_eq!(app.favorites.len(), 1);
+        assert_eq!(app.favorites[0].id, "s0");
+        assert!(app.is_favorite(&station("s0")));
+        assert_eq!(
+            app.store.load().len(),
+            1,
+            "i preferiti devono persistere su disco"
+        );
+    }
+
+    #[test]
+    fn favorite_toggle_removes() {
+        let mut app = app_with_stations(1);
+        app.store = temp_store();
+        press(&mut app, 'f');
+        press(&mut app, 'f');
+        assert!(app.favorites.is_empty());
+        assert!(!app.is_favorite(&station("s0")));
+    }
+
+    #[test]
+    fn load_favorites_shows_when_non_empty() {
+        let store = temp_store();
+        store.save(&[station("s0"), station("s1")]).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut app = App::new(tx, rx, EngineHandle::broken());
+        app.store = store;
+        app.load_favorites();
+        assert!(app.showing_favorites);
+        assert_eq!(app.stations.len(), 2);
+        assert_eq!(app.stations[0].id, "s0");
+    }
+
+    #[test]
+    fn load_favorites_empty_keeps_list_hidden() {
+        let (tx, rx) = mpsc::channel();
+        let mut app = App::new(tx, rx, EngineHandle::broken());
+        app.store = temp_store();
+        app.load_favorites();
+        assert!(!app.showing_favorites);
+        assert!(app.stations.is_empty());
+    }
+
+    #[test]
+    fn key_shift_f_toggles_favorites_view() {
+        let mut app = app_with_stations(0);
+        app.favorites = vec![station("pref1")];
+        app.search_results = vec![station("ris1")];
+        press(&mut app, 'F');
+        assert!(app.showing_favorites);
+        assert_eq!(app.stations[0].id, "pref1");
+        press(&mut app, 'F');
+        assert!(!app.showing_favorites);
+        assert_eq!(app.stations[0].id, "ris1");
+    }
+
+    #[test]
+    fn removing_last_favorite_hides_favorites_view() {
+        let mut app = app_with_stations(0);
+        app.favorites = vec![station("solo")];
+        app.search_results = vec![station("ris")];
+        app.show_favorites();
+        assert!(app.showing_favorites);
+        press(&mut app, 'f');
+        assert!(app.favorites.is_empty());
+        assert!(!app.showing_favorites);
+        assert_eq!(app.stations[0].id, "ris");
     }
 }
