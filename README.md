@@ -3,7 +3,7 @@
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
 (MP3, AAC, OGG/Vorbis, FLAC, WAV), and shows the volume level in real time
-(dBFS meter + level history as a sparkline). Current version: **1.2.1**.
+(dBFS meter + level history as a sparkline). Current version: **1.3.0**.
 
 It is fully usable with the keyboard **and the mouse** (click to focus/search or
 to select and play a station, scroll wheel to navigate), ships with an animated
@@ -68,6 +68,8 @@ cargo run --release
 | `p` or `Space` | pause/resume (or start selection) |
 | `s` | stop |
 | `+` / `-` | volume |
+| `f` | add/remove the selected station as favorite |
+| `F` | show the favorites list |
 | `v` | toggle the audio visualizer |
 | `q` or `Ctrl-C` | quit |
 
@@ -78,6 +80,21 @@ Mouse support is enabled automatically:
 | left-click on a search box | focus that field |
 | left-click on a result row | select and play that station |
 | scroll wheel over the results | move selection up/down |
+
+## Favorites
+
+Press `f` on a station to add or remove it from your favorites (a `★` marks
+favorites in the list, and the station info panel shows "★ Preferito"). `F`
+shows the favorites list. On startup the app shows your favorites in the list;
+if you have no favorites yet the results panel stays empty.
+
+Favorites are saved as JSON in the user data directory:
+
+- **Linux**: `$XDG_DATA_HOME/myradio/favorites.json` (`~/.local/share/myradio/…` by default)
+- **macOS**: `~/Library/Application Support/myradio/favorites.json`
+- **Windows**: `%APPDATA%\myradio\favorites.json`
+
+A missing or corrupted file is ignored and treated as an empty list.
 
 ## Logs
 
@@ -94,6 +111,7 @@ recorded.
 - `src/artwork.rs` — async favicon download, disk + memory cache, and
   half-block rendering of station artwork (works in any terminal)
 - `src/app.rs` — state machine and input handling (keyboard + mouse)
+- `src/favorites.rs` — favorites persistence (JSON in the user data directory)
 - `src/ui.rs` — ratatui rendering (header, search, results, station info, audio
   meter/history, status bar, help, animated startup splash)
 - `src/main.rs` — entry point and logging setup

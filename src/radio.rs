@@ -13,7 +13,7 @@ use crate::error::AppError;
 const SEARCH_LIMIT: usize = 200;
 
 /// Modello interno di una stazione radio.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Station {
     /// Identificativo univoco della stazione (stationuuid).
     pub id: String,

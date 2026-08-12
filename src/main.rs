@@ -64,6 +64,7 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
     };
 
     let mut app = App::new(msg_tx, msg_rx, engine);
+    app.load_favorites();
     let splash_start = Instant::now();
 
     while !app.should_exit() {

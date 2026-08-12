@@ -366,6 +366,8 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = if app.loading {
         " Risultati — ricerca in corso… ".to_string()
+    } else if app.showing_favorites {
+        format!(" Preferiti ({}) ", app.stations.len())
     } else {
         format!(" Risultati ({}) ", app.stations.len())
     };
@@ -379,6 +381,8 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     if app.stations.is_empty() {
         let hint = if app.loading {
             "Attendere…"
+        } else if app.showing_favorites {
+            "Nessun preferito. Premi f sulla stazione che vuoi salvare."
         } else {
             "Nessuna stazione. Digita un nome nella ricerca e premi Invio."
         };
@@ -390,6 +394,10 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     }
 
     let header = Row::new([
+        Cell::from(Span::styled(
+            "Fav",
+            Style::new().add_modifier(Modifier::BOLD),
+        )),
         Cell::from(Span::styled(
             "Nome",
             Style::new().add_modifier(Modifier::BOLD),
@@ -412,7 +420,9 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .stations
         .iter()
         .map(|station| {
+            let fav = if app.is_favorite(station) { "★" } else { "" };
             Row::new(vec![
+                Cell::from(fav),
                 Cell::from(station.name.as_str()),
                 Cell::from(station.country.as_str()),
                 Cell::from(station.codec.as_str()),
@@ -422,6 +432,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .collect();
 
     let widths = [
+        Constraint::Length(3),
         Constraint::Min(18),
         Constraint::Length(14),
         Constraint::Length(7),
@@ -460,6 +471,12 @@ fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     spans.extend(line.spans);
                     lines.push(Line::from(spans));
                 }
+            }
+            if app.is_favorite(station) {
+                lines.push(Line::from(Span::styled(
+                    "★ Preferito",
+                    Style::new().fg(Color::Yellow),
+                )));
             }
             lines.extend(detail_lines(station));
             Text::from(lines)
@@ -604,7 +621,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " / i: ricerca · t: tag · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci · mouse: click = play, scroll",
+        " / i: ricerca · t: tag · f: preferito · F: lista preferiti · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci · mouse: click = play, scroll",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);
