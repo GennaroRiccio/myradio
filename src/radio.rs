@@ -46,7 +46,7 @@ pub struct Station {
 }
 
 impl Station {
-    /// Restituisce la stringa da mostrare nella tabella dei risultati.
+    /// Returns the string to display in the results table.
     #[must_use]
     pub fn bitrate_label(&self) -> String {
         if self.bitrate > 0 {
@@ -57,18 +57,18 @@ impl Station {
     }
 }
 
-/// Sorgente di dati per la ricerca delle stazioni.
+/// Data source for station search.
 pub trait StationProvider: Send + Sync {
-    /// Cerca stazioni per nome (sottostringa) e tag opzionale.
+    /// Search stations by name (substring) and optional tag.
     ///
     /// # Errors
     ///
-    /// Restituisce [`AppError::Search`] se il server non è raggiungibile o la
-    /// risposta non è valida.
+    /// Returns [`AppError::Search`] if the server is unreachable or the
+    /// response is invalid.
     fn search(&self, query: &str, tag: Option<&str>) -> Result<Vec<Station>, AppError>;
 }
 
-/// Provider reale basato sull'API di Radio Browser.
+/// Real provider based on the Radio Browser API.
 #[derive(Debug, Default)]
 pub struct RadioBrowserProvider;
 

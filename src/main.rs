@@ -12,8 +12,14 @@ use myradio::app::{App, Msg};
 use myradio::audio::{self, EngineHandle};
 use myradio::ui;
 
-/// Durata massima del banner di avvio (si chiude anche al primo tasto).
+/// Maximum duration of the startup banner (closes on first key press too).
 const SPLASH_DURATION: Duration = Duration::from_secs(10);
+
+/// Fast tick for animated/active states (splash, visualizer, loading).
+const ACTIVE_TICK: Duration = Duration::from_millis(30);
+
+/// Slower tick when the UI is stable, to reduce CPU usage.
+const IDLE_TICK: Duration = Duration::from_millis(120);
 
 fn main() -> Result<()> {
     let _log_guard = init_tracing();
@@ -23,11 +29,11 @@ fn main() -> Result<()> {
     result
 }
 
-/// Inizializza il logging verso `logs/` senza toccare il terminale TUI.
+/// Initialize logging to `logs/` without touching the TUI terminal.
 ///
-/// I file ruotano ogni giorno e ne vengono conservati al massimo 7. Il guard
-/// restituito mantiene vivo il worker di scrittura per tutta la durata del
-/// processo: al drop viene scaricato il buffer rimanente.
+/// Files rotate daily and at most 7 are kept. The returned guard keeps the
+/// write worker alive for the entire process: on drop the remaining buffer
+/// is flushed.
 fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_appender::rolling::{Builder, Rotation};
     use tracing_subscriber::filter::LevelFilter;
@@ -74,7 +80,13 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
             app.dismiss_splash();
         }
 
-        if event::poll(Duration::from_millis(30))? {
+        let tick = if app.splash || app.playback.is_active() || app.loading {
+            ACTIVE_TICK
+        } else {
+            IDLE_TICK
+        };
+
+        if event::poll(tick)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if app.splash {
@@ -83,7 +95,7 @@ fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
                         app.handle_input(key);
                     }
                 }
-                Event::Mouse(mouse) if !app.splash => app.handle_mouse(mouse),
+                Event::Mouse(mouse) if !app.splash && !app.menu_open => app.handle_mouse(mouse),
                 _ => {}
             }
         }

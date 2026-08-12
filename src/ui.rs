@@ -1,4 +1,4 @@
-//! Rendering dell'interfaccia con ratatui.
+//! Rendering interface with ratatui.
 
 use std::time::Duration;
 
@@ -7,23 +7,23 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Paragraph, Row, Sparkline, Table, TableState, Wrap,
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, TableState, Wrap,
 };
 
 use crate::app::{App, Focus};
 use crate::audio::PlaybackState;
 use crate::radio::Station;
 
-/// Altezza della sezione del visualizzatore audio.
+/// Height of the audio visualizer section.
 const VISUALIZER_HEIGHT: u16 = 10;
 
-/// Altezza massima dell'artwork nel pannello della stazione.
+/// Maximum height of the artwork in the station panel.
 const MAX_ART_HEIGHT: usize = 8;
 
-/// Larghezza massima dell'artwork nel pannello della stazione.
+/// Maximum width of the artwork in the station panel.
 const MAX_ART_WIDTH: usize = 16;
 
-/// Banner di avvio: i 7 glifi (M Y R A D I O), 5 righe × 5 colonne l'uno.
+/// Startup banner: 7 glyphs (M Y R A D I O), 5 rows × 5 columns each.
 const SPLASH_LETTERS: [[&str; 5]; 7] = [
     ["█    █", "██  ██", "█ ██ █", "█  █ █", "█    █"],
     ["█   █", " █ █ ", "  █  ", "  █  ", "  █  "],
@@ -34,25 +34,25 @@ const SPLASH_LETTERS: [[&str; 5]; 7] = [
     [" ██  ", "█  █ ", "█  █ ", "█  █ ", " ██  "],
 ];
 
-/// Larghezza totale del banner: 7 lettere × 5 + 6 spazi di separazione × 2.
+/// Total banner width: 7 letters × 5 + 6 separator spaces × 2.
 const SPLASH_WIDTH: usize = 7 * 5 + 6 * 2;
 
-/// Intervallo tra la comparsa di una lettera del banner.
+/// Interval between banner letter appearances.
 const SPLASH_REVEAL_STEP: Duration = Duration::from_millis(90);
 
-/// Durata del ciclo di colori arcobaleno sul banner.
+/// Duration of the rainbow color cycle on the banner.
 const SPLASH_COLOR_CYCLE: Duration = Duration::from_secs(3);
 
-/// Larghezza della banale sintonizzate FM (colonne della scala).
+/// Width of the FM tuner graphic (scale columns).
 const TUNER_WIDTH: usize = 44;
 
-/// Periodo dello sweep automatico della sonda della sintonia.
+/// Period of the automatic scan sweep of the tuner probe.
 const TUNER_SWEEP: Duration = Duration::from_millis(2500);
 
-/// Stazioni fittizie (frazione della scala, etichetta MHz) dove la sonda si ferma.
+/// Dummy stations (scale fraction, MHz label) where the probe stops.
 const TUNER_STATIONS: &[(f32, &str)] = &[(0.30, "96.3"), (0.55, "106.5"), (0.80, "102.7")];
 
-/// Disegna l'intera interfaccia nel frame corrente.
+/// Draw the entire interface in the current frame.
 pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     if app.splash {
         render_splash(frame, frame.area(), app);
@@ -84,10 +84,106 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     }
     render_status(frame, chunks[4], app);
     render_help(frame, chunks[5]);
+
+    if app.menu_open {
+        render_menu(frame, area);
+    }
 }
 
-/// Banner di avvio animato: le lettere compaiono una a una, poi un'onda di
-/// colori ruota nel tempo. Si chiude al primo tasto o dopo il timeout.
+/// A menu command column: title and list of (key, description) pairs.
+struct MenuColumn {
+    title: &'static str,
+    items: &'static [(&'static str, &'static str)],
+}
+
+/// Menu command sections grouped by category.
+const MENU_COLUMNS: &[MenuColumn] = &[
+    MenuColumn {
+        title: " Navigation ",
+        items: &[
+            ("↑/↓ or j/k", "move selection"),
+            ("Tab", "next field"),
+            ("Esc", "back to results"),
+            ("/ or i", "focus name"),
+            ("t", "focus tag"),
+        ],
+    },
+    MenuColumn {
+        title: " Playback ",
+        items: &[
+            ("Enter", "play"),
+            ("p/Space", "pause/resume"),
+            ("s", "stop"),
+            ("+/-", "volume"),
+            ("v", "visualizer"),
+        ],
+    },
+    MenuColumn {
+        title: " Favorites ",
+        items: &[("f", "add favorite"), ("F", "favorites list")],
+    },
+    MenuColumn {
+        title: " Other ",
+        items: &[
+            ("r", "repeat search"),
+            ("m", "open/close menu"),
+            ("q/Ctrl-C", "quit"),
+            ("mouse", "click and scroll"),
+        ],
+    },
+];
+
+/// Shows the command popup centered over the interface.
+fn render_menu(frame: &mut Frame<'_>, area: Rect) {
+    let popup = centered_rect(area, 110, 15);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Commands ");
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let columns = Layout::horizontal([Constraint::Percentage(25); 4]).split(inner);
+    for (column, column_area) in MENU_COLUMNS.iter().zip(columns.iter()) {
+        let lines: Vec<Line> = column
+            .items
+            .iter()
+            .map(|(key, description)| {
+                Line::from(vec![
+                    Span::styled(
+                        *key,
+                        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(*description, Style::new().dim()),
+                ])
+            })
+            .collect();
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)).block(Block::default().title(column.title)),
+            *column_area,
+        );
+    }
+}
+
+/// Calculates a rect centered in the given area, within terminal limits.
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// Animated startup banner: letters appear one by one, then a color wave
+/// rotates over time. It closes on the first key or after the timeout.
 fn render_splash(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -98,7 +194,7 @@ fn render_splash(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let width = usize::from(inner.width);
     let elapsed = app.splash_started.elapsed();
 
-    // banner + versione + riga vuota + sonda + riga vuota + suggerimento
+    // banner + version + empty line + tuner + empty line + hint
     let total = 5 + 1 + 3 + 1 + 1;
     let top = usize::from(inner.height).saturating_sub(total) / 2;
     let base_pad = width.saturating_sub(SPLASH_WIDTH) / 2;
@@ -270,8 +366,12 @@ fn centered(text: &str, width: usize, style: Style) -> Line<'static> {
 
 fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = match &app.now_playing {
-        Some(station) => format!(" myradio v{} — {} ", app_version(), station.name),
-        None => format!(" myradio v{} ", app_version()),
+        Some(station) => format!(
+            " myradio v{} — {} By Gennaro Riccio",
+            app_version(),
+            station.name
+        ),
+        None => format!(" myradio v{} By Gennaro Riccio ", app_version()),
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -365,11 +465,11 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 
 fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = if app.loading {
-        " Risultati — ricerca in corso… ".to_string()
+        " Results — searching… ".to_string()
     } else if app.showing_favorites {
-        format!(" Preferiti ({}) ", app.stations.len())
+        format!(" Favorites ({}) ", app.stations.len())
     } else {
-        format!(" Risultati ({}) ", app.stations.len())
+        format!(" Results ({}) ", app.stations.len())
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -380,11 +480,11 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 
     if app.stations.is_empty() {
         let hint = if app.loading {
-            "Attendere…"
+            "Loading…"
         } else if app.showing_favorites {
-            "Nessun preferito. Premi f sulla stazione che vuoi salvare."
+            "No favorites. Press f on a station to add it."
         } else {
-            "Nessuna stazione. Digita un nome nella ricerca e premi Invio."
+            "No stations. Enter a name in the search and press Enter."
         };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(hint, Style::new().dim()))).block(block),
@@ -482,7 +582,7 @@ fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Text::from(lines)
         }
         None => Text::from(Line::from(Span::styled(
-            "Nessuna stazione selezionata",
+            "No station selected",
             Style::new().dim(),
         ))),
     };
@@ -493,25 +593,24 @@ fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-/// Righe di dettaglio della stazione mostrate sotto l'eventuale artwork.
+/// Station detail lines shown below the optional artwork.
 fn detail_lines(station: &Station) -> Vec<Line<'static>> {
     vec![
-        Line::from(format!("Nome:      {}", station.name)),
-        Line::from(format!("Paese:     {}", station.country)),
-        Line::from(format!("Stato:     {}", station.state)),
-        Line::from(format!("Lingua:    {}", station.language)),
+        Line::from(format!("Name:      {}", station.name)),
+        Line::from(format!("Country:   {}", station.country)),
+        Line::from(format!("State:     {}", station.state)),
+        Line::from(format!("Language:  {}", station.language)),
         Line::from(format!("Codec:     {}", station.codec)),
         Line::from(format!("Bitrate:   {} kbps", station.bitrate)),
         Line::from(format!("Tags:      {}", station.tags.join(", "))),
-        Line::from(format!("Voti:      {}", station.votes)),
+        Line::from(format!("Votes:     {}", station.votes)),
         Line::from(format!("Homepage:  {}", station.homepage)),
         Line::from(format!("URL:       {}", station.url_resolved)),
     ]
 }
 
-/// Dimensioni della miniatura dell'artwork: larghezza limitata ([`MAX_ART_WIDTH`])
-/// e altezza proporzionale al rapporto d'aspetto dell'immagine, comunque entro
-/// i limiti di spazio disponibili.
+/// Thumbnail size for artwork: width limited to [`MAX_ART_WIDTH`]
+/// and height proportional to the image aspect ratio, within available space.
 fn art_size_for(
     image: &image::RgbaImage,
     inner_width: usize,
@@ -529,7 +628,7 @@ fn art_size_for(
     (art_width, rows)
 }
 
-/// Altezza da dedicare all'artwork, lasciando sempre spazio ai dettagli.
+/// Height to dedicate to artwork, always leaving space for details.
 fn art_height_for(inner_height: usize) -> usize {
     let height = inner_height.saturating_sub(12).min(MAX_ART_HEIGHT);
     if height >= 4 { height } else { 0 }
@@ -621,7 +720,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " / i: ricerca · t: tag · f: preferito · F: lista preferiti · Invio: play · p: pausa/resume · s: stop · +/-: volume · v: visualizzatore · Tab: focus · q: esci · mouse: click = play, scroll",
+        " m: menu · q: quit",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);
@@ -692,6 +791,17 @@ mod tests {
         let complete = render_at(700);
         assert_eq!(revealing.contains('█'), complete.contains('█'));
         assert_ne!(revealing.len(), complete.len(), "il banner deve animarsi");
+    }
+
+    #[test]
+    fn renders_menu_popup() {
+        let mut app = test_app();
+        app.menu_open = true;
+        let output = render_once(&mut app);
+        assert!(output.contains("Commands"));
+        assert!(output.contains("add favorite"));
+        assert!(output.contains("move selection"));
+        assert!(output.contains("pause/resume"));
     }
 
     #[test]

@@ -1,23 +1,23 @@
-//! Tipi di errore applicativi.
+//! Application error types.
 
 use thiserror::Error;
 
-/// Errore di dominio sollevato dall'applicazione.
+/// Domain error raised by the application.
 #[derive(Debug, Error)]
 pub enum AppError {
-    /// Errore di rete durante una ricerca o durante lo streaming.
-    #[error("errore di rete: {0}")]
+    /// Network error during search or streaming.
+    #[error("network error: {0}")]
     Network(String),
-    /// La ricerca su Radio Browser è fallita.
-    #[error("ricerca fallita: {0}")]
+    /// Search on Radio Browser failed.
+    #[error("search failed: {0}")]
     Search(String),
-    /// La stazione selezionata non può essere riprodotta.
-    #[error("impossibile riprodurre la stazione: {0}")]
+    /// Selected station cannot be played.
+    #[error("unable to play station: {0}")]
     Playback(String),
-    /// Nessun dispositivo audio disponibile sul sistema.
-    #[error("nessun dispositivo audio rilevato sull'host")]
+    /// No audio device available on the system.
+    #[error("no audio device detected on host")]
     NoAudioDevice,
-    /// Lo streaming è stato interrotto su richiesta dell'utente.
-    #[error("streaming interrotto")]
+    /// Streaming was interrupted on user request.
+    #[error("streaming interrupted")]
     Interrupted,
 }

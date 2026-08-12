@@ -1,37 +1,37 @@
-//! Persistenza dei preferiti su disco.
+//! Persistence of favorites on disk.
 //!
-//! I preferiti sono salvati come lista di [`Station`] in un file JSON nella
-//! cartella dati dell'applicazione:
+//! Favorites are saved as a list of [`Station`] in a JSON file in the
+//! application data folder:
 //!
 //! - Linux: `$XDG_DATA_HOME/myradio/favorites.json` (default `~/.local/share/…`)
 //! - macOS: `~/Library/Application Support/myradio/favorites.json`
 //! - Windows: `%APPDATA%\myradio\favorites.json`
 //!
-//! Il caricamento è tollerante: file mancante o corrotto producono una lista
-//! vuota, mai un errore che blocca l'avvio.
+//! Loading is tolerant: missing or corrupted files produce an empty list,
+//! never an error that blocks startup.
 
 use std::io;
 use std::path::PathBuf;
 
 use crate::radio::Station;
 
-/// Nome della sottocartella dati dell'applicazione.
+/// Name of the application data subfolder.
 const APP_DIR: &str = "myradio";
 
-/// Nome del file dei preferiti.
+/// Name of the favorites file.
 const FILE_NAME: &str = "favorites.json";
 
-/// Accesso al file dei preferiti.
+/// Access to the favorites file.
 ///
-/// Se non è possibile determinare una cartella dati (sistemi senza HOME), il
-/// salvataggio è un no-op e il caricamento restituisce una lista vuota.
+/// If it's not possible to determine a data folder (systems without HOME),
+/// saving is a no-op and loading returns an empty list.
 #[derive(Debug, Clone)]
 pub struct FavoritesStore {
     path: Option<PathBuf>,
 }
 
 impl FavoritesStore {
-    /// Crea lo store con il percorso dati di default del sistema.
+    /// Create the store with the system's default data path.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -39,15 +39,15 @@ impl FavoritesStore {
         }
     }
 
-    /// Crea lo store con un percorso esplicito (usato dai test).
+    /// Create the store with an explicit path (used by tests).
     #[must_use]
     pub fn with_path(path: PathBuf) -> Self {
         Self { path: Some(path) }
     }
 
-    /// Carica i preferiti dal disco.
+    /// Load favorites from disk.
     ///
-    /// File mancante o non decodificabile → lista vuota.
+    /// Missing or non-decodable file → empty list.
     #[must_use]
     pub fn load(&self) -> Vec<Station> {
         let Some(path) = &self.path else {
@@ -57,21 +57,21 @@ impl FavoritesStore {
             return Vec::new();
         };
         let Ok(stations) = serde_json::from_str(&json) else {
-            tracing::warn!(path = %path.display(), "file preferiti non valido");
+            tracing::warn!(path = %path.display(), "invalid favorites file");
             return Vec::new();
         };
         stations
     }
 
-    /// Salva i preferiti su disco.
+    /// Save favorites to disk.
     ///
-    /// Crea le cartelle mancanti. Un errore di scrittura viene restituito per
-    /// essere mostrato all'utente, senza far crashare l'applicazione.
+    /// Creates missing folders. A write error is returned to be shown to the
+    /// user without crashing the application.
     ///
     /// # Errors
     ///
-    /// Restituisce un errore I/O se la cartella non è creabile o il file non è
-    /// scrivibile.
+    /// Returns an I/O error if the folder cannot be created or the file is
+    /// not writable.
     pub fn save(&self, stations: &[Station]) -> io::Result<()> {
         let Some(path) = &self.path else {
             return Ok(());
@@ -91,13 +91,13 @@ impl Default for FavoritesStore {
     }
 }
 
-/// Determina il percorso del file dei preferiti per la piattaforma corrente.
+/// Determine the favorites file path for the current platform.
 fn default_path() -> Option<PathBuf> {
     let base = data_dir()?;
     Some(base.join(APP_DIR).join(FILE_NAME))
 }
 
-/// Restituisce la cartella dati utente di base per la piattaforma corrente.
+/// Return the base user data folder for the current platform.
 fn data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
