@@ -3,7 +3,7 @@
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
 (MP3, AAC, OGG/Vorbis, FLAC, WAV), and shows the volume level in real time
-(dBFS meter + level history as a sparkline). Current version: **1.2.0**.
+(dBFS meter + level history as a sparkline). Current version: **1.2.1**.
 
 It is fully usable with the keyboard **and the mouse** (click to focus/search or
 to select and play a station, scroll wheel to navigate), ships with an animated

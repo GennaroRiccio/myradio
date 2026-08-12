@@ -54,6 +54,22 @@ pub enum EngineCmd {
     TogglePause,
     /// Imposta il volume (0.0..1.0).
     SetVolume(f32),
+    /// Uno stream è stato connesso e decodificato dal thread di lavoro.
+    StreamReady {
+        /// Generazione della connessione a cui si riferisce il risultato.
+        generation: u64,
+        /// Decoder dello stream già connesso e validato.
+        decoder: rodio::Decoder<InterruptibleReader>,
+        /// Area dei livelli condivisa con la TUI.
+        levels: SharedLevels,
+    },
+    /// La connessione dello stream è fallita.
+    StreamFailed {
+        /// Generazione della connessione a cui si riferisce il risultato.
+        generation: u64,
+        /// Messaggio di errore da mostrare all'utente.
+        message: String,
+    },
 }
 
 /// Stato di riproduzione corrente.
@@ -139,8 +155,9 @@ pub fn spawn(msg_tx: Sender<Msg>) -> Result<EngineHandle, AppError> {
     let player = Player::connect_new(sink.mixer());
 
     let (cmd_tx, cmd_rx) = mpsc::channel();
-    thread::spawn(move || run_engine(player, sink, cmd_rx, msg_tx));
-    Ok(EngineHandle { tx: cmd_tx })
+    let handle_tx = cmd_tx.clone();
+    thread::spawn(move || run_engine(player, sink, cmd_tx, cmd_rx, msg_tx));
+    Ok(EngineHandle { tx: handle_tx })
 }
 
 /// Mantiene vivo il device stream (`_sink`) per tutta la vita del thread e processa
@@ -149,23 +166,33 @@ pub fn spawn(msg_tx: Sender<Msg>) -> Result<EngineHandle, AppError> {
 fn run_engine(
     player: Player,
     _sink: rodio::MixerDeviceSink,
+    cmd_tx: Sender<EngineCmd>,
     cmd_rx: Receiver<EngineCmd>,
     msg_tx: Sender<Msg>,
 ) {
     let mut current_stop: Option<Arc<AtomicBool>> = None;
     let mut volume = DEFAULT_VOLUME;
+    let mut generation: u64 = 0;
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(250)) {
             Ok(EngineCmd::Play { station, levels }) => {
                 stop_source(&mut current_stop);
+                generation += 1;
                 player.clear();
                 player.set_volume(volume);
                 let _ = msg_tx.send(Msg::Playback(PlaybackState::Connecting));
-                current_stop = start_stream(&player, station.as_ref(), levels, &msg_tx);
+
+                // La connessione e la costruzione del decoder avvengono su un thread
+                // di lavoro: uno stream lento o malformato non deve bloccare l'engine,
+                // che resta pronto a gestire stop/cambio stazione e altri comandi.
+                let stop = Arc::new(AtomicBool::new(false));
+                current_stop = Some(stop.clone());
+                spawn_connect(station.as_ref(), levels, stop, generation, cmd_tx.clone());
             }
             Ok(EngineCmd::Stop) => {
                 stop_source(&mut current_stop);
+                generation += 1;
                 player.clear();
                 let _ = msg_tx.send(Msg::Playback(PlaybackState::Stopped));
             }
@@ -186,26 +213,74 @@ fn run_engine(
                 volume = value.clamp(0.0, 1.0);
                 player.set_volume(volume);
             }
+            Ok(EngineCmd::StreamReady {
+                generation: ready_generation,
+                decoder,
+                levels,
+            }) => {
+                // Ignora risultati ormai superati da un nuovo play o da uno stop.
+                if ready_generation == generation {
+                    player.append(LevelSource::new(decoder, levels));
+                    player.play();
+                    let _ = msg_tx.send(Msg::Playback(PlaybackState::Playing));
+                }
+            }
+            Ok(EngineCmd::StreamFailed {
+                generation: failed_generation,
+                message,
+            }) => {
+                if failed_generation == generation {
+                    let _ = msg_tx.send(Msg::PlaybackError(message));
+                }
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
 }
 
-/// Avvia lo stream di una stazione: HTTP -> chunk -> decoder -> player.
+/// Avvia la connessione di uno stream su un thread di lavoro.
 ///
-/// Restituisce il flag di stop da impostare per interrompere la stazione corrente.
-fn start_stream(
-    player: &Player,
+/// Il thread scarica lo stream HTTP e costruisce il decoder, poi invia l'esito
+/// all'engine via canale: la `generation` permette di scartare gli esiti ormai
+/// superati da uno stop o dal cambio stazione. Così una connessione lenta o
+/// malformata non blocca mai il thread dell'engine.
+fn spawn_connect(
     station: &Station,
     levels: SharedLevels,
-    msg_tx: &Sender<Msg>,
-) -> Option<Arc<AtomicBool>> {
-    let stop = Arc::new(AtomicBool::new(false));
+    stop: Arc<AtomicBool>,
+    generation: u64,
+    cmd_tx: Sender<EngineCmd>,
+) {
+    let url = station.url_resolved.clone();
+    let codec = station.codec.clone();
+    thread::spawn(move || {
+        let outcome = connect_stream(&url, &codec, &stop);
+        let cmd = match outcome {
+            Ok(decoder) => EngineCmd::StreamReady {
+                generation,
+                decoder,
+                levels,
+            },
+            Err(error) => EngineCmd::StreamFailed {
+                generation,
+                message: format!("formato audio non supportato o stream non valido ({error})"),
+            },
+        };
+        let _ = cmd_tx.send(cmd);
+    });
+}
+
+/// Connette lo stream HTTP e prova a costruire il decoder, senza toccare il player.
+fn connect_stream(
+    url: &str,
+    codec: &str,
+    stop: &Arc<AtomicBool>,
+) -> Result<rodio::Decoder<InterruptibleReader>, AppError> {
     let (chunk_tx, chunk_rx) = channel::unbounded::<Vec<u8>>();
 
     let producer_stop = stop.clone();
-    let url = station.url_resolved.clone();
+    let url = url.to_string();
     thread::spawn(move || {
         if let Err(error) = fetch_stream(&url, &chunk_tx, &producer_stop) {
             tracing::debug!(%url, error = %error, "fetch dello stream terminato");
@@ -213,26 +288,13 @@ fn start_stream(
     });
 
     let reader = InterruptibleReader::new(chunk_rx, stop.clone());
-    let hint = decoder_hint(&station.codec);
     let mut builder = Decoder::builder().with_data(reader);
-    if let Some(hint) = hint {
+    if let Some(hint) = decoder_hint(codec) {
         builder = builder.with_hint(hint);
     }
-
-    match builder.build() {
-        Ok(decoder) => {
-            player.append(LevelSource::new(decoder, levels));
-            player.play();
-            let _ = msg_tx.send(Msg::Playback(PlaybackState::Playing));
-            Some(stop)
-        }
-        Err(error) => {
-            stop.store(true, Ordering::Relaxed);
-            let message = format!("formato audio non supportato o stream non valido ({error})");
-            let _ = msg_tx.send(Msg::PlaybackError(message));
-            None
-        }
-    }
+    builder
+        .build()
+        .map_err(|error| AppError::Playback(error.to_string()))
 }
 
 /// Suggerisce al decoder un'estensione in base al codec dichiarato dalla stazione.
@@ -241,7 +303,11 @@ fn decoder_hint(codec: &str) -> Option<&'static str> {
     if codec.contains("mp3") {
         Some("mp3")
     } else if codec.contains("aac") || codec.contains("m4a") || codec.contains("mp4") {
-        Some("m4a")
+        // AAC, AAC+ e HE-AAC in radio sono quasi sempre ADTS, non MP4: il demuxer
+        // ADTS rifiuta subito i dati non validi, mentre l'hint "m4a" farebbe
+        // scandire il container in attesa di un atom `moov` che su uno stream
+        // live non arriva mai, bloccando la connessione.
+        Some("aac")
     } else if codec.contains("vorbis") || codec.contains("ogg") {
         Some("vorbis")
     } else if codec.contains("flac") {
@@ -522,8 +588,20 @@ mod tests {
     use crossbeam_channel as channel;
     use rodio::source::{SineWave, Source};
 
-    use super::{InterruptibleReader, LevelSource};
+    use super::{InterruptibleReader, LevelSource, decoder_hint};
     use crate::levels::SharedLevels;
+
+    #[test]
+    fn decoder_hint_maps_codecs() {
+        assert_eq!(decoder_hint("AAC+"), Some("aac"));
+        assert_eq!(decoder_hint("AAC HE v1"), Some("aac"));
+        assert_eq!(decoder_hint("MP4A-LATM"), Some("aac"));
+        assert_eq!(decoder_hint("MP3"), Some("mp3"));
+        assert_eq!(decoder_hint("OGG Vorbis"), Some("vorbis"));
+        assert_eq!(decoder_hint("FLAC"), Some("flac"));
+        assert_eq!(decoder_hint("WAV"), Some("wav"));
+        assert_eq!(decoder_hint(""), None);
+    }
 
     #[test]
     fn reader_disconnect_returns_eof() {
