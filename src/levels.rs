@@ -1,26 +1,26 @@
-//! Calcolo e condivisione dei livelli audio per il visualizzatore.
+//! Computation and sharing of audio levels for the visualizer.
 //!
-//! Il thread audio produce periodicamente un valore RMS (in dBFS) del segnale
-//! decodificato e lo registra in un'area condivisa; il loop TUI legge uno
-//! snapshot a ogni frame senza bloccare la produzione dei campioni.
+//! The audio thread periodically produces an RMS value (in dBFS) of the decoded
+//! signal and records it in a shared area; the TUI loop reads a snapshot every
+//! frame without blocking sample production.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-/// Fondo scala del meter, in dBFS. Livelli inferiori vengono considerati silenzio.
+/// Meter full scale, in dBFS. Levels below this are considered silence.
 const MIN_DB: f64 = -60.0;
 
-/// Capacità dello storico dei livelli (in punti).
+/// Capacity of the levels history (in points).
 const HISTORY_CAPACITY: usize = 240;
 
-/// Converte un livello in dBFS in una percentuale 0..100.
+/// Convert a dBFS level to a 0..100 percentage.
 #[must_use]
 pub fn db_to_pcent(db: f64) -> f64 {
     let db = db.clamp(MIN_DB, 0.0);
     ((db - MIN_DB) / (-MIN_DB)) * 100.0
 }
 
-/// Storico e livello corrente dei campioni decodificati.
+/// History and current level of decoded samples.
 #[derive(Debug)]
 struct Levels {
     history: VecDeque<f64>,
@@ -37,7 +37,7 @@ impl Default for Levels {
 }
 
 impl Levels {
-    /// Registra un nuovo valore RMS (dB) e aggiorna lo storico.
+    /// Record a new RMS value (dB) and update history.
     fn push_db(&mut self, db: f64) {
         self.current_db = db.clamp(MIN_DB, 0.0);
         if self.history.len() >= HISTORY_CAPACITY {
@@ -47,18 +47,18 @@ impl Levels {
     }
 }
 
-/// Area condivisa tra il thread audio e il loop TUI.
+/// Shared area between the audio thread and the TUI loop.
 #[derive(Debug, Clone, Default)]
 pub struct SharedLevels(Arc<Mutex<Levels>>);
 
 impl SharedLevels {
-    /// Crea una nuova area condivisa.
+    /// Create a new shared area.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Azzera livello corrente e storico.
+    /// Reset current level and history.
     pub fn reset(&self) {
         if let Ok(mut levels) = self.0.lock() {
             levels.history.clear();
@@ -66,14 +66,14 @@ impl SharedLevels {
         }
     }
 
-    /// Registra un nuovo livello RMS (in dBFS).
+    /// Record a new RMS level (in dBFS).
     pub fn push_db(&self, db: f64) {
         if let Ok(mut levels) = self.0.lock() {
             levels.push_db(db);
         }
     }
 
-    /// Restituisce `(livello corrente in percentuale, storico in percentuale)`.
+    /// Returns `(current level in percentage, history in percentage)`.
     #[must_use]
     pub fn snapshot(&self) -> (f64, Vec<u64>) {
         let Ok(levels) = self.0.lock() else {
@@ -122,7 +122,7 @@ mod tests {
         }
         levels.reset();
         let (current, history) = levels.snapshot();
-        assert!(current.abs() < 1e-9, "livello atteso 0, ottenuto {current}");
+        assert!(current.abs() < 1e-9, "expected level 0, got {current}");
         assert!(history.is_empty());
     }
 }

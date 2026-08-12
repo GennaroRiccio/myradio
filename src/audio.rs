@@ -1,13 +1,12 @@
-//! Motore di riproduzione audio eseguito su un thread dedicato.
+//! Audio playback engine running on a dedicated thread.
 //!
-//! Il thread dell'engine riceve i comandi dalla TUI tramite un canale e serializza
-//! tutte le operazioni su [`Player`] (rodio). La decodifica dello stream è
-//! alimentata da un thread di rete che legge i chunk dalla risposta HTTP: il reader
-//! intermediario è interrompibile, così lo stop/il cambio stazione risponde in
-//! pochi centesimi di secondo anche a rete lenta o bloccata.
+//! The engine thread receives commands from the TUI via a channel and serializes
+//! all operations on [`Player`] (rodio). Stream decoding is fed by a network thread
+//! that reads chunks from the HTTP response: the intermediate reader is interruptible,
+//! so stop/station change responds in a fraction of a second even on slow or blocked networks.
 //!
-//! Il campionamento dei livelli audio avviene avvolgendendo la sorgente decodificata
-//! in [`LevelSource`], che aggiorna una [`SharedLevels`] condivisa con la TUI.
+//! Audio level sampling happens by wrapping the decoded source in [`LevelSource`],
+//! which updates a [`SharedLevels`] shared with the TUI.
 
 use std::collections::VecDeque;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -26,48 +25,48 @@ use crate::error::AppError;
 use crate::levels::SharedLevels;
 use crate::radio::Station;
 
-/// Intervallo massimo con cui il reader interrompibile risponde a uno stop.
+/// Maximum interval at which the interruptible reader responds to a stop.
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-/// Dimensione massima della cache ripercorribile del reader (per il seek).
+/// Maximum size of the reader's rewindable cache (for seek).
 ///
-/// Il decoder di rodio richiede un reader `Read + Seek`. Per uno stream live il
-/// seek è quasi sempre verso l'inizio del flusso (fase di *probing*), quindi basta
-/// conservare una finestra limitata dei byte già letti.
+/// The rodio decoder requires a `Read + Seek` reader. For a live stream,
+/// seeking is almost always to the beginning of the stream (probing phase),
+/// so it's enough to keep a limited window of already-read bytes.
 const REWIND_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
-/// Volume di default applicato alla riproduzione.
+/// Default volume applied to playback.
 pub const DEFAULT_VOLUME: f32 = 0.8;
 
-/// Comandi accettati dal thread di riproduzione.
+/// Commands accepted by the playback thread.
 pub enum EngineCmd {
-    /// Avvia la riproduzione di una stazione, fermando l'eventuale corrente.
+    /// Start playing a station, stopping the current one if any.
     Play {
-        /// Stazione da riprodurre.
+        /// Station to play.
         station: Box<Station>,
-        /// Area condivisa su cui registrare i livelli.
+        /// Shared area to register levels.
         levels: SharedLevels,
     },
-    /// Ferma la riproduzione corrente.
+    /// Stop current playback.
     Stop,
-    /// Alterna pausa/riproduzione.
+    /// Toggle pause/resume.
     TogglePause,
-    /// Imposta il volume (0.0..1.0).
+    /// Set volume (0.0..1.0).
     SetVolume(f32),
-    /// Uno stream è stato connesso e decodificato dal thread di lavoro.
+    /// A stream was connected and decoded by the worker thread.
     StreamReady {
-        /// Generazione della connessione a cui si riferisce il risultato.
+        /// Generation of the connection this result refers to.
         generation: u64,
-        /// Decoder dello stream già connesso e validato.
+        /// Decoder of the already connected and validated stream.
         decoder: rodio::Decoder<InterruptibleReader>,
-        /// Area dei livelli condivisa con la TUI.
+        /// Shared levels area with the TUI.
         levels: SharedLevels,
     },
-    /// La connessione dello stream è fallita.
+    /// Stream connection failed.
     StreamFailed {
-        /// Generazione della connessione a cui si riferisce il risultato.
+        /// Generation of the connection this result refers to.
         generation: u64,
-        /// Messaggio di errore da mostrare all'utente.
+        /// Error message to show to the user.
         message: String,
     },
 }
@@ -75,29 +74,29 @@ pub enum EngineCmd {
 /// Stato di riproduzione corrente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlaybackState {
-    /// Nessuna stazione in riproduzione.
+    /// No station playing.
     #[default]
     Stopped,
-    /// Connessione/avvio dello stream in corso.
+    /// Stream connection/startup in progress.
     Connecting,
-    /// Lo stream è in riproduzione.
+    /// Stream is playing.
     Playing,
-    /// La riproduzione è in pausa.
+    /// Playback is paused.
     Paused,
-    /// Si è verificato un errore di riproduzione.
+    /// Playback error occurred.
     Error,
 }
 
 impl PlaybackState {
-    /// Indica se lo stato corrisponde a una riproduzione "attiva" (ossia a cui è
-    /// associata una stazione) per cui mostrare il visualizzatore.
+    /// Indicates whether the state corresponds to an "active" playback
+    /// (i.e., one with an associated station) for which to show the visualizer.
     #[must_use]
     pub fn is_active(self) -> bool {
         matches!(self, Self::Connecting | Self::Playing | Self::Paused)
     }
 }
 
-/// Handle inviabile al thread di riproduzione.
+/// Handle sendable to the playback thread.
 #[derive(Debug, Clone)]
 pub struct EngineHandle {
     tx: Sender<EngineCmd>,
@@ -147,8 +146,8 @@ fn stop_source(current_stop: &mut Option<Arc<AtomicBool>>) {
 ///
 /// # Errors
 ///
-/// Restituisce [`AppError::NoAudioDevice`] se nessun dispositivo audio è
-/// disponibile sul sistema.
+/// Returns [`AppError::NoAudioDevice`] if no audio device is
+/// available on the system.
 pub fn spawn(msg_tx: Sender<Msg>) -> Result<EngineHandle, AppError> {
     let sink =
         rodio::DeviceSinkBuilder::open_default_sink().map_err(|_| AppError::NoAudioDevice)?;
@@ -241,10 +240,10 @@ fn run_engine(
 
 /// Avvia la connessione di uno stream su un thread di lavoro.
 ///
-/// Il thread scarica lo stream HTTP e costruisce il decoder, poi invia l'esito
-/// all'engine via canale: la `generation` permette di scartare gli esiti ormai
-/// superati da uno stop o dal cambio stazione. Così una connessione lenta o
-/// malformata non blocca mai il thread dell'engine.
+/// The thread downloads the HTTP stream and builds the decoder, then sends
+/// the result to the engine via channel: the `generation` allows discarding
+/// results that are now stale due to a stop or station change. This way,
+/// a slow or malformed connection never blocks the engine thread.
 fn spawn_connect(
     station: &Station,
     levels: SharedLevels,
@@ -367,12 +366,12 @@ fn fetch_stream(
     }
 }
 
-/// Reader che consuma i chunk prodotti dal thread di rete ed è interrompibile.
+/// Reader that consumes chunks produced by the network thread and is interruptible.
 ///
-/// Implementa [`io::Read`] e [`io::Seek`] per essere usato come sorgente del
-/// decoder. Il seek è supportato solo all'indietro, entro la finestra dei byte già
-/// letti (cache limitata): è quanto serve al decoder per il *probing* dello stream.
-/// Se viene impostato il flag di stop viene restituito EOF.
+/// Implements [`io::Read`] and [`io::Seek`] for use as the decoder source.
+/// Seek is only supported backwards, within the window of already-read bytes
+/// (limited cache): this is what the decoder needs for stream *probing*.
+/// If the stop flag is set, EOF is returned.
 pub struct InterruptibleReader {
     rx: channel::Receiver<Vec<u8>>,
     stop: Arc<AtomicBool>,
@@ -383,7 +382,7 @@ pub struct InterruptibleReader {
 }
 
 impl InterruptibleReader {
-    /// Crea un nuovo reader.
+    /// Create a new reader.
     #[must_use]
     pub fn new(rx: channel::Receiver<Vec<u8>>, stop: Arc<AtomicBool>) -> Self {
         Self {
@@ -406,12 +405,12 @@ impl InterruptibleReader {
         self.rewind.push_back(byte);
     }
 
-    /// Riporta un byte già consumato nello stream di lettura (rewind).
+    /// Return a byte already consumed in the read stream (rewind).
     fn unremember(&mut self) -> Option<u8> {
         self.rewind.pop_back()
     }
 
-    /// Attende un chunk dalla rete, rispettando il flag di stop.
+    /// Wait for a chunk from the network, respecting the stop flag.
     fn fill(&mut self) -> io::Result<()> {
         loop {
             if self.stop.load(Ordering::Relaxed) {
@@ -527,8 +526,8 @@ pub struct LevelSource<S: Source> {
 }
 
 impl<S: Source> LevelSource<S> {
-    /// Crea la sorgente a partire dal decoder. `window` è il numero di campioni tra
-    /// due aggiornamenti del livello (~40 volte al secondo).
+    /// Create the source from the decoder. `window` is the number of samples between
+    /// level updates (~40 times per second).
     #[must_use]
     pub fn new(inner: S, levels: SharedLevels) -> Self {
         let window = u64::from(inner.sample_rate().get()) / 40;

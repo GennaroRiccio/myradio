@@ -48,16 +48,16 @@ pub struct ArtworkStore {
 }
 
 impl ArtworkStore {
-    /// Restituisce l'immagine della stazione, se già disponibile.
+    /// Returns the station image, if already available.
     #[must_use]
     pub fn get(&self, station: &Station) -> Option<&RgbaImage> {
         self.cached.get(&station.id)
     }
 
-    /// Avvia i download mancanti, al più [`MAX_IN_FLIGHT`] alla volta.
+    /// Start missing downloads, at most [`MAX_IN_FLIGHT`] at a time.
     ///
-    /// Da chiamare a ogni tick del loop principale: i download che superano il
-    /// limite restano in sospeso e vengono avviati appena si libera un posto.
+    /// Should be called every tick of the main loop: downloads that exceed the
+    /// limit remain pending and are started as soon as a slot is available.
     pub fn request_missing(&mut self, stations: &[Station], tx: &Sender<Msg>) {
         for station in stations {
             if self.pending.len() >= MAX_IN_FLIGHT {
@@ -225,7 +225,7 @@ fn block_cell(top: [u8; 3], bottom: [u8; 3]) -> (&'static str, [u8; 3], [u8; 3])
     }
 }
 
-/// Luminosità percepita di un colore RGB.
+/// Perceived brightness of an RGB color.
 fn lightness([r, g, b]: [u8; 3]) -> f32 {
     0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b)
 }

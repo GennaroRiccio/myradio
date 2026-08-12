@@ -1,4 +1,4 @@
-//! Macchina a stati e gestione dell'input dell'applicazione TUI.
+//! State machine and input handling for the TUI application.
 
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -15,36 +15,36 @@ use crate::favorites::FavoritesStore;
 use crate::levels::SharedLevels;
 use crate::radio::{RadioBrowserProvider, Station, StationProvider};
 
-/// Messaggi asincroni inviati al loop principale da thread di lavoro.
+/// Async messages sent to the main loop from worker threads.
 #[derive(Debug)]
 pub enum Msg {
-    /// Risultato di una ricerca di stazioni.
+    /// Result of a station search.
     SearchFinished(Result<Vec<Station>, AppError>),
-    /// Cambio di stato della riproduzione.
+    /// Playback state change.
     Playback(PlaybackState),
-    /// Errore di riproduzione non recuperabile.
+    /// Unrecoverable playback error.
     PlaybackError(String),
-    /// Artwork di una stazione scaricato (o fallito).
+    /// Station artwork downloaded (or failed).
     Artwork {
-        /// Identificativo della stazione.
+        /// Station identifier.
         id: String,
-        /// Immagine decodificata, se il download è riuscito.
+        /// Decoded image if download succeeded.
         image: Option<RgbaImage>,
     },
 }
 
-/// Campo della UI attualmente in primo piano.
+/// UI field currently in focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    /// Campo di ricerca per nome.
+    /// Name search field.
     Query,
-    /// Campo di filtro per tag.
+    /// Tag filter field.
     Tag,
-    /// Tabella dei risultati.
+    /// Results table.
     Results,
 }
 
-/// Aree interattive della UI aggiornate a ogni frame, in coordinate schermo.
+/// Interactive UI areas updated each frame in screen coordinates.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UiAreas {
     /// Riga del campo di ricerca per nome.
@@ -72,46 +72,46 @@ pub struct App {
     pub stations: Vec<Station>,
     /// Stazioni salvate nei preferiti.
     pub favorites: Vec<Station>,
-    /// Ultimi risultati di ricerca, per tornare alla lista risultati.
+    /// Last search results, to return to the results list.
     pub search_results: Vec<Station>,
-    /// `true` se la tabella mostra i preferiti invece dei risultati.
+    /// `true` if the table shows favorites instead of results.
     pub showing_favorites: bool,
-    /// `true` mentre è aperto il menu dei comandi.
+    /// `true` while the command menu is open.
     pub menu_open: bool,
-    /// Indice della stazione selezionata.
+    /// Index of the selected station.
     pub selected: usize,
-    /// `true` mentre una ricerca è in corso.
+    /// `true` while a search is in progress.
     pub loading: bool,
 
-    /// Persistenza dei preferiti su disco.
+    /// Persistence of favorites on disk.
     store: FavoritesStore,
 
-    /// Stazione in riproduzione, se presente.
+    /// Station being played, if any.
     pub now_playing: Option<Station>,
-    /// Stato corrente della riproduzione.
+    /// Current playback state.
     pub playback: PlaybackState,
-    /// Volume corrente (0.0..1.0).
+    /// Current volume (0.0..1.0).
     pub volume: f32,
 
-    /// Mostra il visualizzatore audio.
+    /// Show the audio visualizer.
     pub visualizer: bool,
-    /// Livelli audio condivisi col thread di riproduzione.
+    /// Audio levels shared with the playback thread.
     pub levels: SharedLevels,
 
-    /// Messaggio di stato da mostrare nella status bar.
+    /// Status message to display in the status bar.
     pub status: Option<String>,
 
-    /// Artwork delle stazioni (download, cache su disco e memoria).
+    /// Station artwork (download, disk and memory cache).
     pub artworks: ArtworkStore,
 
-    /// `true` mentre è visibile il banner di avvio.
+    /// `true` while the startup banner is visible.
     pub splash: bool,
-    /// Istante di avvio del banner (per l'animazione).
+    /// Instant the banner started (for animation).
     pub splash_started: Instant,
 
-    /// Aree interattive della UI, aggiornate a ogni frame dal rendering.
+    /// Interactive UI areas updated each frame by rendering.
     pub areas: UiAreas,
-    /// Prima riga visibile della tabella risultati (per mappare click -> stazione).
+    /// First visible row of the results table (for mapping click -> station).
     pub results_offset: usize,
 
     should_exit: bool,
@@ -170,13 +170,13 @@ impl App {
         self.stations.get(self.selected)
     }
 
-    /// Restituisce `true` se un campo di ricerca è in editing.
+    /// Returns `true` if a search field is being edited.
     #[must_use]
     pub fn editing(&self) -> bool {
         matches!(self.focus, Focus::Query | Focus::Tag)
     }
 
-    /// Restituisce `true` se la stazione è nei preferiti.
+    /// Returns `true` if the station is in favorites.
     #[must_use]
     pub fn is_favorite(&self, station: &Station) -> bool {
         self.favorites
@@ -382,8 +382,8 @@ impl App {
         }
     }
 
-    /// Avvia la riproduzione della stazione appena selezionata col mouse, senza
-    /// riavviare uno stream già attivo sulla stessa stazione.
+    /// Start playing the newly selected station by mouse, without
+    /// restarting a stream already active on the same station.
     fn play_on_click(&mut self) {
         let Some(station) = self.stations.get(self.selected).cloned() else {
             return;

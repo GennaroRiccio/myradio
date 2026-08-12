@@ -12,13 +12,13 @@ use myradio::app::{App, Msg};
 use myradio::audio::{self, EngineHandle};
 use myradio::ui;
 
-/// Durata massima del banner di avvio (si chiude anche al primo tasto).
+/// Maximum duration of the startup banner (closes on first key press too).
 const SPLASH_DURATION: Duration = Duration::from_secs(10);
 
-/// Tick rapido per stati animati/attivi (splash, visualizer, loading).
+/// Fast tick for animated/active states (splash, visualizer, loading).
 const ACTIVE_TICK: Duration = Duration::from_millis(30);
 
-/// Tick più lento quando la UI è stabile, per ridurre uso CPU.
+/// Slower tick when the UI is stable, to reduce CPU usage.
 const IDLE_TICK: Duration = Duration::from_millis(120);
 
 fn main() -> Result<()> {
@@ -29,11 +29,11 @@ fn main() -> Result<()> {
     result
 }
 
-/// Inizializza il logging verso `logs/` senza toccare il terminale TUI.
+/// Initialize logging to `logs/` without touching the TUI terminal.
 ///
-/// I file ruotano ogni giorno e ne vengono conservati al massimo 7. Il guard
-/// restituito mantiene vivo il worker di scrittura per tutta la durata del
-/// processo: al drop viene scaricato il buffer rimanente.
+/// Files rotate daily and at most 7 are kept. The returned guard keeps the
+/// write worker alive for the entire process: on drop the remaining buffer
+/// is flushed.
 fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_appender::rolling::{Builder, Rotation};
     use tracing_subscriber::filter::LevelFilter;
