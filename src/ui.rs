@@ -233,7 +233,7 @@ fn render_splash(frame: &mut Frame<'_>, area: Rect, app: &App) {
     lines.extend(render_tuner(width, elapsed));
     lines.push(Line::default());
     lines.push(centered(
-        "Premi un tasto per continuare",
+        "Press any key to continue…",
         width,
         Style::new().dim(),
     ));
@@ -299,7 +299,7 @@ fn render_tuner(width: usize, elapsed: Duration) -> Vec<Line<'static>> {
     let status = if let Some(label) = locked_label {
         format!("▶ {label} MHz")
     } else {
-        "cerco stazione…".to_string()
+        "looking for a station…".to_string()
     };
     let status_style = if locked_label.is_some() {
         Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)
@@ -367,7 +367,7 @@ fn centered(text: &str, width: usize, style: Style) -> Line<'static> {
 fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = match &app.now_playing {
         Some(station) => format!(
-            " myradio v{} — {} By Gennaro Riccio",
+            " myradio v{} By Gennaro Riccio  — now playing {} ",
             app_version(),
             station.name
         ),
@@ -379,7 +379,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .title(title)
         .title_style(Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan));
     let line = Line::from(Span::styled(
-        "Client per radio internet — cerca, seleziona e ascolta in streaming",
+        "Internet radio client — search, select, and stream",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(line).block(block), area);
@@ -405,7 +405,7 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Ricerca ");
+        .title(" Search ");
 
     let inner = block.inner(area);
     app.areas.query = Rect::new(inner.x, inner.y, inner.width, 1);
@@ -447,7 +447,7 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
             Span::styled(tag_value, tag_style),
         ]),
         Line::from(Span::styled(
-            "Invio: cerca · Tab: campo successivo · Esc: risultati · /: focus nome · t: focus tag",
+            "Enter: search · Tab: next field · Esc: results · /: focus name · t: focus tag",
             Style::new().dim(),
         )),
     ]);
@@ -554,7 +554,7 @@ fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Stazione ");
+        .title(" Station ");
 
     let text = match app.selected_station() {
         Some(station) => {
@@ -574,7 +574,7 @@ fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
             }
             if app.is_favorite(station) {
                 lines.push(Line::from(Span::styled(
-                    "★ Preferito",
+                    "★ Favorite",
                     Style::new().fg(Color::Yellow),
                 )));
             }
@@ -646,7 +646,7 @@ fn render_meter(frame: &mut Frame<'_>, area: Rect, pcent: f64) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Livello segnale ");
+        .title(" Signal level ");
 
     let label = format!("{pcent:3.0}% ");
     let cols = area.width.checked_sub(8).unwrap_or(1);
@@ -672,7 +672,7 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, history: &[u64]) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Storico livello ");
+        .title(" Record level ");
 
     let sparkline = Sparkline::default()
         .data(history)
@@ -685,11 +685,11 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, history: &[u64]) {
 
 fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let (label, color) = match app.playback {
-        PlaybackState::Playing => (" ▶ IN RIPRODUZIONE ", Color::Green),
-        PlaybackState::Paused => (" ⏸ PAUSA ", Color::Yellow),
-        PlaybackState::Connecting => (" ⏳ CONNESSIONE… ", Color::Cyan),
-        PlaybackState::Error => (" ✖ ERRORE ", Color::Red),
-        PlaybackState::Stopped => (" ■ FERMO ", Color::Gray),
+        PlaybackState::Playing => (" ▶ PLAYING ", Color::Green),
+        PlaybackState::Paused => (" ⏸ PAUSED ", Color::Yellow),
+        PlaybackState::Connecting => (" ⏳ CONNECTING… ", Color::Cyan),
+        PlaybackState::Error => (" ✖ ERROR ", Color::Red),
+        PlaybackState::Stopped => (" ■ STOPPED ", Color::Gray),
     };
 
     let mut spans = vec![Span::styled(
@@ -719,10 +719,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
-    let text = Line::from(Span::styled(
-        " m: menu · q: quit",
-        Style::new().dim(),
-    ));
+    let text = Line::from(Span::styled(" m: menu · q: quit", Style::new().dim()));
     frame.render_widget(Paragraph::new(text), area);
 }
 
@@ -772,7 +769,7 @@ mod tests {
         let mut app = App::new(tx, rx, EngineHandle::broken());
         let output = render_once(&mut app);
         assert!(output.contains(&format!("v{}", super::app_version())));
-        assert!(output.contains("Premi un tasto"));
+        assert!(output.contains("Press any key to continue"));
         assert!(output.contains('█'), "l'ASCII art deve essere disegnata");
     }
 
