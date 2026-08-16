@@ -416,7 +416,7 @@ impl App {
         let tx = self.msg_tx.clone();
         let tag = (!tag.is_empty()).then(|| tag.to_string());
         thread::spawn(move || {
-            let provider = RadioBrowserProvider;
+            let provider = RadioBrowserProvider::default();
             let result = provider.search(&query, tag.as_deref());
             let _ = tx.send(Msg::SearchFinished(result));
         });

@@ -1,6 +1,6 @@
 [package]
 name = "myradio"
-version = "1.3.4"
+version = "1.4.0"
 edition = "2024"
 description = "TUI per ascoltare radio in streaming via Radio Browser API"
 license = "MIT"
@@ -8,8 +8,7 @@ authors = ["Gennaro Riccio"]
 rust-version = "1.85"
 
 [dependencies]
-radiobrowser = { version = "0.6.1", default-features = false, features = ["blocking", "rustls"] }
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots", "gzip"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp"] }
 ratatui = "0.30.2"
 crossterm = "0.29"

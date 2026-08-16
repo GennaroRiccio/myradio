@@ -262,6 +262,9 @@ fn hsv_to_rgb(hue: u16, saturation: f32, value: f32) -> Color {
 /// Scala FM animata con sonda che scorre e si ferma su stazioni.
 fn render_tuner(width: usize, elapsed: Duration) -> Vec<Line<'static>> {
     let band = width.min(TUNER_WIDTH);
+    if band == 0 {
+        return Vec::new();
+    }
     let needle = tuner_needle(elapsed, band);
     let (locked_label, needle_color) = tuner_lock(elapsed);
 
