@@ -12,36 +12,54 @@ use crate::error::AppError;
 /// Numero massimo di stazioni restituite da una singola ricerca.
 const SEARCH_LIMIT: usize = 200;
 
-/// Modello interno di una stazione radio.
+/// Internal model of a radio station.
+///
+/// Every field has `#[serde(default)]` so a favorites file written by another
+/// version (with missing or extra fields) still loads: deserialization never
+/// fails, preventing an app update from wiping the favorites.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Station {
-    /// Identificativo univoco della stazione (stationuuid).
+    /// Unique station identifier (stationuuid).
+    #[serde(default)]
     pub id: String,
-    /// Nome della stazione.
+    /// Station name.
+    #[serde(default)]
     pub name: String,
-    /// URL dello stream (standardizzato con i redirect seguiti).
+    /// Stream URL (normalized after following redirects).
+    #[serde(default)]
     pub url_resolved: String,
-    /// URL dello stream dichiarato.
+    /// Declared stream URL.
+    #[serde(default)]
     pub url: String,
-    /// URL del favicon/artwork della stazione.
+    /// Station favicon/artwork URL.
+    #[serde(default)]
     pub favicon: String,
-    /// Pagina web della stazione.
+    /// Station homepage.
+    #[serde(default)]
     pub homepage: String,
-    /// Paese di origine.
+    /// Country of origin.
+    #[serde(default)]
     pub country: String,
-    /// Regione/Stato di origine.
+    /// Region/State of origin.
+    #[serde(default)]
     pub state: String,
-    /// Lingua principale.
+    /// Primary language.
+    #[serde(default)]
     pub language: String,
-    /// Codec dello stream (es. `MP3`, `AAC`).
+    /// Stream codec (e.g. `MP3`, `AAC`).
+    #[serde(default)]
     pub codec: String,
-    /// Bitrate dichiarato in kbps.
+    /// Declared bitrate in kbps.
+    #[serde(default)]
     pub bitrate: u32,
-    /// Etichette/generi della stazione.
+    /// Station labels/genres.
+    #[serde(default)]
     pub tags: Vec<String>,
-    /// Numero di voti ricevuti.
+    /// Number of votes received.
+    #[serde(default)]
     pub votes: i32,
-    /// `true` se lo stream usa HLS (non supportato).
+    /// `true` if the stream uses HLS (not supported).
+    #[serde(default)]
     pub hls: bool,
 }
 

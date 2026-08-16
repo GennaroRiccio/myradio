@@ -72,6 +72,10 @@ pub struct App {
     pub stations: Vec<Station>,
     /// Stazioni salvate nei preferiti.
     pub favorites: Vec<Station>,
+    /// `true` if favorites were modified during this session and must be
+    /// written back on exit. Prevents an unmodified/empty list from
+    /// overwriting an existing file at shutdown.
+    favorites_dirty: bool,
     /// Last search results, to return to the results list.
     pub search_results: Vec<Station>,
     /// `true` if the table shows favorites instead of results.
@@ -136,6 +140,7 @@ impl App {
             store: FavoritesStore::new(),
             selected: 0,
             loading: false,
+            favorites_dirty: false,
             now_playing: None,
             playback: PlaybackState::Stopped,
             volume: DEFAULT_VOLUME,
@@ -211,7 +216,7 @@ impl App {
         }
     }
 
-    /// Aggiunge o rimuove la stazione selezionata dai preferiti, salvando su disco.
+    /// Add or remove the selected station from favorites, saving to disk.
     pub fn toggle_favorite(&mut self) {
         let Some(station) = self.stations.get(self.selected).cloned() else {
             return;
@@ -223,19 +228,20 @@ impl App {
             .position(|favorite| favorite.id == station.id)
         {
             self.favorites.remove(position);
-            format!("Rimossa dai preferiti: {name}")
+            format!("Removed from favorites: {name}")
         } else {
             self.favorites.push(station);
-            format!("Aggiunta ai preferiti: {name}")
+            format!("Added to favorites: {name}")
         };
 
+        self.favorites_dirty = true;
         if let Err(error) = self.store.save(&self.favorites) {
-            self.status = Some(format!("errore salvataggio preferiti: {error}"));
+            self.status = Some(format!("error saving favorites: {error}"));
         } else {
             self.status = Some(message);
         }
 
-        // Se stiamo mostrando i preferiti, la lista cambia subito.
+        // If we're showing favorites, the list changes right away.
         if self.showing_favorites {
             self.show_favorites();
             if self.favorites.is_empty() {
@@ -506,20 +512,24 @@ impl App {
         self.artworks.request_missing(&self.stations, &self.msg_tx);
     }
 
-    /// Salva i preferiti su disco.
+    /// Save favorites to disk.
     ///
-    /// Questo viene chiamato automaticamente nel `Drop` per garantire la
-    /// persistenza all'uscita dell'app.
+    /// Called automatically in `Drop` to guarantee persistence on exit, but
+    /// only when the list was actually modified during the session. An
+    /// unmodified (or failed-to-load, thus empty) list never overwrites the
+    /// existing file, so favorites are never wiped by a bad load.
     pub fn save_favorites(&self) {
         if let Err(error) = self.store.save(&self.favorites) {
-            tracing::warn!("errore salvataggio preferiti all'uscita: {error}");
+            tracing::warn!("error saving favorites on exit: {error}");
         }
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
-        self.save_favorites();
+        if self.favorites_dirty {
+            self.save_favorites();
+        }
     }
 }
 
@@ -674,11 +684,7 @@ mod tests {
         assert_eq!(app.favorites.len(), 1);
         assert_eq!(app.favorites[0].id, "s0");
         assert!(app.is_favorite(&station("s0")));
-        assert_eq!(
-            app.store.load().len(),
-            1,
-            "i preferiti devono persistere su disco"
-        );
+        assert_eq!(app.store.load().len(), 1, "favorites must persist to disk");
     }
 
     #[test]
@@ -712,6 +718,42 @@ mod tests {
         app.load_favorites();
         assert!(!app.showing_favorites);
         assert!(app.stations.is_empty());
+    }
+
+    #[test]
+    fn drop_does_not_overwrite_unmodified_favorites() {
+        let store = temp_store();
+        store.save(&[station("s0"), station("s1")]).unwrap();
+        let path = store.path().unwrap().clone();
+        let (tx, rx) = mpsc::channel();
+        let mut app = App::new(tx, rx, EngineHandle::broken());
+        app.store = store;
+        app.load_favorites();
+        drop(app);
+        let reloaded = FavoritesStore::with_path(path.clone()).load();
+        assert_eq!(
+            reloaded.len(),
+            2,
+            "exit without changes must not overwrite the file"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn drop_persists_favorites_when_modified() {
+        let store = temp_store();
+        store.save(&[station("s0")]).unwrap();
+        let path = store.path().unwrap().clone();
+        let mut app = app_with_stations(1);
+        app.store = store;
+        app.favorites = FavoritesStore::with_path(path.clone()).load();
+        app.selected = 0;
+        press(&mut app, 'f');
+        assert!(app.favorites.is_empty());
+        drop(app);
+        let reloaded = FavoritesStore::with_path(path.clone()).load();
+        assert!(reloaded.is_empty(), "the modification must persist on exit");
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
