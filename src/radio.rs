@@ -1,16 +1,21 @@
-//! Ricerca delle stazioni radio tramite Radio Browser.
+//! Searching radio stations via Radio Browser.
 //!
-//! Il client usa l'API bloccante del crate `radiobrowser` (feature `blocking`).
-//! Il trait [`StationProvider`] permette di sostituire il provider reale con un mock
-//! nei test.
+//! The client talks directly to the Radio Browser JSON API with the blocking
+//! client of `reqwest` (no extra resolver/async-std dependencies). The
+//! [`StationProvider`] trait lets tests swap the real provider for a mock.
 
-use radiobrowser::blocking::RadioBrowserAPI;
-use radiobrowser::{ApiStation, StationOrder};
+use std::time::Duration;
 
 use crate::error::AppError;
 
-/// Numero massimo di stazioni restituite da una singola ricerca.
+/// Number of stations returned by a single search.
 const SEARCH_LIMIT: usize = 200;
+
+/// Static Radio Browser mirror used as the API base URL.
+const API_BASE: &str = "https://de1.api.radio-browser.info";
+
+/// Timeout for a single search request.
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Internal model of a radio station.
 ///
@@ -87,50 +92,95 @@ pub trait StationProvider: Send + Sync {
 }
 
 /// Real provider based on the Radio Browser API.
-#[derive(Debug, Default)]
-pub struct RadioBrowserProvider;
+#[derive(Debug)]
+pub struct RadioBrowserProvider {
+    client: reqwest::blocking::Client,
+}
+
+impl Default for RadioBrowserProvider {
+    fn default() -> Self {
+        Self {
+            client: reqwest::blocking::Client::builder()
+                .user_agent(concat!("myradio/", env!("CARGO_PKG_VERSION")))
+                .timeout(SEARCH_TIMEOUT)
+                .build()
+                .expect("valid HTTP client"),
+        }
+    }
+}
 
 impl StationProvider for RadioBrowserProvider {
     fn search(&self, query: &str, tag: Option<&str>) -> Result<Vec<Station>, AppError> {
-        // `new()` risolve i server tramite DNS SRV: in ambienti con DNS filtrato
-        // può fallire, per cui si usa un fallback a un server noto.
-        let api = RadioBrowserAPI::new()
-            .or_else(|_| RadioBrowserAPI::new_from_dns_a("de1.api.radio-browser.info"))
-            .map_err(|e| AppError::Search(e.to_string()))?;
-
-        let mut builder = api
-            .get_stations()
-            .hidebroken(true)
-            .order(StationOrder::Clickcount)
-            .reverse(true)
-            .limit(SEARCH_LIMIT.to_string());
+        let tag = tag.and_then(|t| {
+            let trimmed = t.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        });
 
         let query = query.trim();
+        let mut params: Vec<(&str, String)> = vec![
+            ("hidebroken", "true".to_string()),
+            ("order", "clickcount".to_string()),
+            ("reverse", "true".to_string()),
+            ("limit", SEARCH_LIMIT.to_string()),
+        ];
         if !query.is_empty() {
-            builder = builder.name(query);
+            params.push(("name", query.to_string()));
+        }
+        if let Some(tag) = tag {
+            params.push(("tag", tag));
         }
 
-        if let Some(tag) = tag.and_then(|t| {
-            let trimmed = t.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        }) {
-            builder = builder.tag(tag);
-        }
-
-        let stations = builder
+        let response = self
+            .client
+            .get(format!("{API_BASE}/json/stations/search"))
+            .query(&params)
             .send()
+            .map_err(|e| AppError::Search(e.to_string()))?;
+
+        let stations: Vec<ApiStation> = response
+            .json()
             .map_err(|e| AppError::Search(e.to_string()))?;
 
         Ok(stations.into_iter().filter_map(station_from_api).collect())
     }
 }
 
-/// Converte un record dell'API nel modello interno, scartando le stazioni non
-/// riproducibili (HLS o senza URL risolto).
+/// A station record as returned by the Radio Browser JSON API (subset of
+/// fields we use). All fields default so partial records still map.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct ApiStation {
+    #[serde(default)]
+    stationuuid: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    url_resolved: String,
+    #[serde(default)]
+    favicon: String,
+    #[serde(default)]
+    homepage: String,
+    #[serde(default)]
+    country: String,
+    #[serde(default)]
+    state: String,
+    #[serde(default)]
+    language: String,
+    #[serde(default)]
+    codec: String,
+    #[serde(default)]
+    bitrate: u32,
+    #[serde(default)]
+    tags: String,
+    #[serde(default)]
+    votes: i32,
+    #[serde(default)]
+    hls: u8,
+}
+
+/// Maps an API record to the internal model, dropping non-playable stations
+/// (HLS or without a resolved URL).
 fn station_from_api(station: ApiStation) -> Option<Station> {
     if station.hls != 0 || station.url_resolved.trim().is_empty() {
         return None;
@@ -161,14 +211,11 @@ fn station_from_api(station: ApiStation) -> Option<Station> {
 
 #[cfg(test)]
 mod tests {
-    use super::station_from_api;
-    use radiobrowser::ApiStation;
+    use super::{ApiStation, station_from_api};
 
     fn sample_api_station() -> ApiStation {
         ApiStation {
-            changeuuid: "c1".to_string(),
             stationuuid: "s1".to_string(),
-            serveruuid: None,
             name: "Jazz 24".to_string(),
             url: "http://example/jazz".to_string(),
             url_resolved: "http://example/jazz/live.mp3".to_string(),
@@ -176,33 +223,18 @@ mod tests {
             favicon: String::new(),
             tags: "jazz, live, usa".to_string(),
             country: "United States".to_string(),
-            countrycode: "US".to_string(),
-            iso_3166_2: None,
             state: "California".to_string(),
             language: "English".to_string(),
-            languagecodes: None,
             votes: 42,
-            lastchangetime_iso8601: None,
             codec: "MP3".to_string(),
             bitrate: 128,
             hls: 0,
-            lastcheckok: 1,
-            lastchecktime_iso8601: None,
-            lastcheckoktime_iso8601: None,
-            lastlocalchecktime_iso8601: None,
-            clicktimestamp_iso8601: None,
-            clickcount: 10,
-            clicktrend: 0,
-            ssl_error: None,
-            geo_lat: None,
-            geo_long: None,
-            has_extended_info: None,
         }
     }
 
     #[test]
     fn maps_record_correctly() {
-        let station = station_from_api(sample_api_station()).expect("record valido");
+        let station = station_from_api(sample_api_station()).expect("valid record");
         assert_eq!(station.name, "Jazz 24");
         assert_eq!(station.bitrate, 128);
         assert_eq!(station.tags, vec!["jazz", "live", "usa"]);
@@ -213,7 +245,7 @@ mod tests {
     fn maps_favicon() {
         let mut api = sample_api_station();
         api.favicon = "http://example/favicon.png".to_string();
-        let station = station_from_api(api).expect("record valido");
+        let station = station_from_api(api).expect("valid record");
         assert_eq!(station.favicon, "http://example/favicon.png");
     }
 
