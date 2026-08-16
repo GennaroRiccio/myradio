@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check / Test / Clippy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------
+      # Checkout
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # Rust
+      # ---------------------------------------------------------
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # ---------------------------------------------------------
+      # Linux dependencies
+      # Rodio / cpal require ALSA development libraries
+      # ---------------------------------------------------------
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev
+
+      # ---------------------------------------------------------
+      # Cache Cargo
+      # ---------------------------------------------------------
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # ---------------------------------------------------------
+      # Formatting
+      # ---------------------------------------------------------
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+      # ---------------------------------------------------------
+      # Build
+      # ---------------------------------------------------------
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      # ---------------------------------------------------------
+      # Tests
+      # ---------------------------------------------------------
+      - name: Cargo test
+        run: cargo test --all-targets
+
+      # ---------------------------------------------------------
+      # Clippy
+      # ---------------------------------------------------------
+      - name: Cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
