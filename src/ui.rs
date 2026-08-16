@@ -7,7 +7,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, TableState, Wrap,
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap,
 };
 
 use crate::app::{App, Focus};
@@ -15,7 +15,7 @@ use crate::audio::PlaybackState;
 use crate::radio::Station;
 
 /// Height of the audio visualizer section.
-const VISUALIZER_HEIGHT: u16 = 10;
+const VISUALIZER_HEIGHT: u16 = 12;
 
 /// Maximum height of the artwork in the station panel.
 const MAX_ART_HEIGHT: usize = 8;
@@ -642,6 +642,24 @@ fn render_visualizer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     render_history(frame, chunks[1], &history);
 }
 
+/// Color for a level percentage (0..100): a blue→cyan→green→yellow→red
+/// gradient using explicit RGB so it looks the same on any terminal theme.
+fn level_color(value: u64) -> Color {
+    let steps: &[(u64, (u8, u8, u8))] = &[
+        (15, (0, 110, 255)),  // blue
+        (35, (0, 200, 255)),  // cyan
+        (55, (0, 230, 90)),   // green
+        (75, (255, 200, 0)),  // yellow
+        (100, (255, 70, 70)), // red
+    ];
+    for &(threshold, (r, g, b)) in steps {
+        if value < threshold {
+            return Color::Rgb(r, g, b);
+        }
+    }
+    Color::Rgb(255, 70, 70)
+}
+
 fn render_meter(frame: &mut Frame<'_>, area: Rect, pcent: f64) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -654,13 +672,7 @@ fn render_meter(frame: &mut Frame<'_>, area: Rect, pcent: f64) {
     let filled = ((pcent / 100.0) * bar_width as f64).round() as usize;
     let filled = filled.min(bar_width);
 
-    let color = if pcent < 33.0 {
-        Color::Green
-    } else if pcent < 66.0 {
-        Color::Yellow
-    } else {
-        Color::Red
-    };
+    let color = level_color(pcent.round().clamp(0.0, 100.0) as u64);
 
     let bar = format!("{}{}", "█".repeat(filled), "░".repeat(bar_width - filled));
     let line = Line::from(vec![Span::raw(label), Span::styled(bar, color)]);
@@ -673,14 +685,64 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, history: &[u64]) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(" Record level ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    let sparkline = Sparkline::default()
-        .data(history)
-        .max(100)
-        .block(block)
-        .style(Style::new().fg(Color::Cyan).bg(Color::Black));
+    let height = usize::from(inner.height);
+    let width = usize::from(inner.width);
+    if height == 0 || width == 0 {
+        return;
+    }
 
-    frame.render_widget(sparkline, area);
+    // Discrete bars: each bar is 2 cells wide with a 1-cell gap, so adjacent
+    // bars stay visually separated. Each terminal row holds two half-block
+    // pixels, giving bars 2*height discrete levels. Bars are drawn bottom-up;
+    // the topmost cell of each bar (the peak) is always red and bold, the rest
+    // is colored by the sample level.
+    let bar_width = 2usize;
+    let bar_gap = 1usize;
+    let step = bar_width + bar_gap;
+    let bars = width / step;
+    if bars == 0 {
+        return;
+    }
+    let start = history.len().saturating_sub(bars);
+
+    let pixel_h = height * 2;
+    let mut lines = Vec::with_capacity(height);
+    for r in 0..height {
+        let upper = pixel_h - 2 * r;
+        let lower = upper - 1;
+        let mut spans = Vec::with_capacity(width);
+        for b in 0..bars {
+            let value = history.get(start + b).copied().unwrap_or(0);
+            let pixels = (value * u64::try_from(pixel_h).unwrap_or(0) / 100) as usize;
+            let is_peak = pixels == upper || pixels == lower;
+            let ch = if pixels >= upper {
+                '█'
+            } else if pixels == lower {
+                '▄'
+            } else {
+                ' '
+            };
+            let color = level_color(value);
+            let style = if is_peak {
+                Style::new()
+                    .fg(Color::Rgb(255, 90, 90))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(color)
+            };
+            for _ in 0..bar_width {
+                spans.push(Span::styled(ch.to_string(), style));
+            }
+            for _ in 0..bar_gap {
+                spans.push(Span::raw(" "));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -806,7 +868,7 @@ mod tests {
         let mut app = test_app();
         app.playback = crate::audio::PlaybackState::Playing;
         let output = render_once(&mut app);
-        assert!(output.contains("IN RIPRODUZIONE"));
+        assert!(output.contains("PLAYING"));
     }
 
     #[test]

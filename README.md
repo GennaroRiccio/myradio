@@ -3,7 +3,7 @@
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
 (MP3, AAC, OGG/Vorbis, FLAC, WAV), and shows the volume level in real time
-(dBFS meter + level history as a sparkline). Current version: **1.3.2**.
+(dBFS meter + level history as a sparkline). Current version: **1.3.4**.
 
 It is fully usable with the keyboard **and the mouse** (click to focus/search or
 to select and play a station, scroll wheel to navigate), ships with an animated
@@ -12,9 +12,14 @@ half-blocks so it works in any terminal.
 
 ## Build
 
-- **Linux**: `pkg-config` + `libasound2-dev` (rodio's ALSA backend)
+- **Linux**: `pkg-config` + ALSA development headers (rodio's ALSA backend)
   ```sh
+  # Debian/Ubuntu
   sudo apt install -y pkg-config libasound2-dev
+  # Arch Linux (and derivatives)
+  sudo pacman -S --needed pkgconf alsa-lib
+  # Fedora
+  sudo dnf install -y pkgconf-pkg-config alsa-lib-devel
   ```
 - **Windows**: no system dependencies (WASAPI); TLS via rustls
 - **macOS**: native build only (no system dependencies)
@@ -47,7 +52,8 @@ scripts/build-release.sh --all    # native + cross-compiled Windows (from Linux)
 scripts/build-release.sh --windows
 ```
 
-- Linux: requires `pkg-config` + `libasound2-dev`.
+- Linux: requires `pkg-config` + ALSA development headers (see the
+  distribution-specific commands in the Build section above).
 - Windows: from Linux needs `mingw-w64` (`sudo apt install -y mingw-w64`);
   on Windows a native build is enough.
 - macOS: native build only; cross-compilation from other hosts is unsupported.

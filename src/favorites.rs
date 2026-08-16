@@ -45,6 +45,12 @@ impl FavoritesStore {
         Self { path: Some(path) }
     }
 
+    /// Path of the favorites file, if a data folder is available.
+    #[must_use]
+    pub fn path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
     /// Load favorites from disk.
     ///
     /// Missing or non-decodable file → empty list.
@@ -65,8 +71,10 @@ impl FavoritesStore {
 
     /// Save favorites to disk.
     ///
-    /// Creates missing folders. A write error is returned to be shown to the
-    /// user without crashing the application.
+    /// Creates missing folders. The write is atomic: data goes to a temporary
+    /// file in the same folder which is then renamed over the target, so an
+    /// interrupted write never leaves a corrupted file. A write error is
+    /// returned to be shown to the user without crashing the application.
     ///
     /// # Errors
     ///
@@ -81,7 +89,10 @@ impl FavoritesStore {
         }
         let json = serde_json::to_string_pretty(stations)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        std::fs::write(path, json)
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
     }
 }
 
@@ -195,5 +206,30 @@ mod tests {
         store.save(&[station("x")]).unwrap();
         assert!(path.exists());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn save_is_atomic_and_leaves_no_temp_file() {
+        let path = temp_path("atomic");
+        let store = FavoritesStore::with_path(path.clone());
+        store.save(&[station("x")]).unwrap();
+        assert!(path.exists());
+        assert!(
+            !path.with_extension("tmp").exists(),
+            "temp file must have been renamed away"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_partial_station_json_uses_defaults() {
+        let path = temp_path("partial");
+        std::fs::write(&path, r#"[{"id":"a","name":"A"}]"#).unwrap();
+        let store = FavoritesStore::with_path(path.clone());
+        let loaded = store.load();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "a");
+        assert_eq!(loaded[0].codec, "");
+        std::fs::remove_file(&path).ok();
     }
 }
