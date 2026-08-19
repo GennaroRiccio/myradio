@@ -1,5 +1,6 @@
 //! State machine and input handling for the TUI application.
 
+use std::cmp::Reverse;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Instant;
@@ -44,6 +45,24 @@ pub enum Focus {
     Results,
 }
 
+/// Campo di ordinamento per la tabella risultati.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortKey {
+    /// Ordina per nome stazione.
+    Name,
+    /// Ordina per paese.
+    Country,
+}
+
+/// Direzione di ordinamento.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDir {
+    /// Ascendente (A→Z, 0→9).
+    Asc,
+    /// Discendente (Z→A, 9→0).
+    Desc,
+}
+
 /// Interactive UI areas updated each frame in screen coordinates.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UiAreas {
@@ -75,7 +94,7 @@ pub struct App {
     /// `true` if favorites were modified during this session and must be
     /// written back on exit. Prevents an unmodified/empty list from
     /// overwriting an existing file at shutdown.
-    favorites_dirty: bool,
+    pub favorites_dirty: bool,
     /// Last search results, to return to the results list.
     pub search_results: Vec<Station>,
     /// `true` if the table shows favorites instead of results.
@@ -86,6 +105,11 @@ pub struct App {
     pub selected: usize,
     /// `true` while a search is in progress.
     pub loading: bool,
+
+    /// Campo di ordinamento corrente (nessuno, nome o paese).
+    pub sort_key: Option<SortKey>,
+    /// Direzione di ordinamento corrente.
+    pub sort_dir: SortDir,
 
     /// Persistence of favorites on disk.
     store: FavoritesStore,
@@ -141,6 +165,8 @@ impl App {
             selected: 0,
             loading: false,
             favorites_dirty: false,
+            sort_key: None,
+            sort_dir: SortDir::Asc,
             now_playing: None,
             playback: PlaybackState::Stopped,
             volume: DEFAULT_VOLUME,
@@ -203,6 +229,7 @@ impl App {
         self.loading = false;
         self.stations = self.favorites.clone();
         self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+        self.apply_sort();
     }
 
     /// Alterna la tabella tra preferiti e ultimi risultati di ricerca.
@@ -211,6 +238,7 @@ impl App {
             self.showing_favorites = false;
             self.stations = self.search_results.clone();
             self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+            self.apply_sort();
         } else {
             self.show_favorites();
         }
@@ -222,24 +250,19 @@ impl App {
             return;
         };
         let name = station.name.clone();
-        let message = if let Some(position) = self
+        if let Some(position) = self
             .favorites
             .iter()
             .position(|favorite| favorite.id == station.id)
         {
             self.favorites.remove(position);
-            format!("Removed from favorites: {name}")
+            self.status = Some(format!("Removed from favorites: {name}"));
         } else {
             self.favorites.push(station);
-            format!("Added to favorites: {name}")
-        };
+            self.status = Some(format!("Added to favorites: {name}"));
+        }
 
         self.favorites_dirty = true;
-        if let Err(error) = self.store.save(&self.favorites) {
-            self.status = Some(format!("error saving favorites: {error}"));
-        } else {
-            self.status = Some(message);
-        }
 
         // If we're showing favorites, the list changes right away.
         if self.showing_favorites {
@@ -251,9 +274,65 @@ impl App {
         }
     }
 
+    /// Salva i preferiti su disco solo se la lista non è vuota.
+    /// Imposta `favorites_dirty = false` a salvataggio avvenuto.
+    pub fn save_favorites(&mut self) {
+        if self.favorites.is_empty() {
+            self.status = Some("Cannot save: favorites list is empty".to_string());
+            return;
+        }
+        if let Err(error) = self.store.save(&self.favorites) {
+            self.status = Some(format!("error saving favorites: {error}"));
+        } else {
+            self.favorites_dirty = false;
+            self.status = Some(format!("Saved {} favorites", self.favorites.len()));
+        }
+    }
+
     /// Apre o chiude il menu dei comandi.
     pub fn toggle_menu(&mut self) {
         self.menu_open = !self.menu_open;
+    }
+
+    /// Attiva l'ordinamento per il campo indicato, o inverte la direzione
+    /// se lo stesso campo è già attivo.
+    pub fn toggle_sort(&mut self, key: SortKey) {
+        if self.sort_key == Some(key) {
+            self.sort_dir = match self.sort_dir {
+                SortDir::Asc => SortDir::Desc,
+                SortDir::Desc => SortDir::Asc,
+            };
+        } else {
+            self.sort_key = Some(key);
+            self.sort_dir = SortDir::Asc;
+        }
+        self.apply_sort();
+    }
+
+    /// Ordina `self.stations` in base al campo e alla direzione correnti,
+    /// preservando la stazione attualmente selezionata.
+    pub fn apply_sort(&mut self) {
+        let Some(key) = self.sort_key else {
+            return;
+        };
+        let selected_id = self.stations.get(self.selected).map(|s| s.id.clone());
+        match key {
+            SortKey::Name => match self.sort_dir {
+                SortDir::Asc => self.stations.sort_by_key(|s| s.name.to_lowercase()),
+                SortDir::Desc => self
+                    .stations
+                    .sort_by_key(|s| Reverse(s.name.to_lowercase())),
+            },
+            SortKey::Country => match self.sort_dir {
+                SortDir::Asc => self.stations.sort_by_key(|s| s.country.to_lowercase()),
+                SortDir::Desc => self
+                    .stations
+                    .sort_by_key(|s| Reverse(s.country.to_lowercase())),
+            },
+        }
+        self.selected = selected_id
+            .and_then(|id| self.stations.iter().position(|s| s.id == id))
+            .unwrap_or(0);
     }
 
     /// Elabora un evento da tastiera.
@@ -279,8 +358,11 @@ impl App {
             KeyCode::Char('t') => self.focus = Focus::Tag,
             KeyCode::Char('f') => self.toggle_favorite(),
             KeyCode::Char('F') => self.toggle_favorites_view(),
+            KeyCode::Char('n') => self.toggle_sort(SortKey::Name),
+            KeyCode::Char('c') => self.toggle_sort(SortKey::Country),
             KeyCode::Char('m' | 'M') => self.toggle_menu(),
             KeyCode::Char('r') => self.run_search(),
+            KeyCode::Char('S') => self.save_favorites(),
             KeyCode::Char('v') => self.visualizer = !self.visualizer,
             KeyCode::Char('p' | ' ') => self.toggle_play_or_play_selected(),
             KeyCode::Char('s') => self.stop(),
@@ -485,6 +567,7 @@ impl App {
                     self.showing_favorites = false;
                     self.selected = 0;
                     self.loading = false;
+                    self.apply_sort();
                 }
                 Msg::SearchFinished(Err(e)) => {
                     self.loading = false;
@@ -510,26 +593,6 @@ impl App {
         // Avvia man mano i download di artwork mancanti (al più MAX_IN_FLIGHT
         // in volo): i risultati arrivano sul canale e vengono processati sopra.
         self.artworks.request_missing(&self.stations, &self.msg_tx);
-    }
-
-    /// Save favorites to disk.
-    ///
-    /// Called automatically in `Drop` to guarantee persistence on exit, but
-    /// only when the list was actually modified during the session. An
-    /// unmodified (or failed-to-load, thus empty) list never overwrites the
-    /// existing file, so favorites are never wiped by a bad load.
-    pub fn save_favorites(&self) {
-        if let Err(error) = self.store.save(&self.favorites) {
-            tracing::warn!("error saving favorites on exit: {error}");
-        }
-    }
-}
-
-impl Drop for App {
-    fn drop(&mut self) {
-        if self.favorites_dirty {
-            self.save_favorites();
-        }
     }
 }
 
@@ -677,14 +740,14 @@ mod tests {
     }
 
     #[test]
-    fn favorite_toggle_adds_and_saves() {
+    fn favorite_toggle_adds_and_marks_dirty() {
         let mut app = app_with_stations(1);
         app.store = temp_store();
         press(&mut app, 'f');
         assert_eq!(app.favorites.len(), 1);
         assert_eq!(app.favorites[0].id, "s0");
         assert!(app.is_favorite(&station("s0")));
-        assert_eq!(app.store.load().len(), 1, "favorites must persist to disk");
+        assert!(app.favorites_dirty, "toggle must mark dirty");
     }
 
     #[test]
@@ -695,6 +758,40 @@ mod tests {
         press(&mut app, 'f');
         assert!(app.favorites.is_empty());
         assert!(!app.is_favorite(&station("s0")));
+    }
+
+    #[test]
+    fn save_favorites_persists_to_disk() {
+        let mut app = app_with_stations(1);
+        let store = temp_store();
+        let path = store.path().unwrap().clone();
+        app.store = store;
+        press(&mut app, 'f');
+        assert!(app.favorites_dirty);
+        app.save_favorites();
+        assert!(!app.favorites_dirty, "save must clear dirty flag");
+        let reloaded = FavoritesStore::with_path(path.clone()).load();
+        assert_eq!(reloaded.len(), 1, "favorites must persist to disk");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn save_favorites_empty_list_does_not_save() {
+        let store = temp_store();
+        store.save(&[station("s0")]).unwrap();
+        let path = store.path().unwrap().clone();
+        let mut app = app_with_stations(0);
+        app.store = store;
+        app.favorites = vec![];
+        app.favorites_dirty = true;
+        app.save_favorites();
+        let reloaded = FavoritesStore::with_path(path.clone()).load();
+        assert_eq!(
+            reloaded.len(),
+            1,
+            "empty list must not overwrite existing file"
+        );
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -740,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_persists_favorites_when_modified() {
+    fn drop_does_not_persist_modified_favorites() {
         let store = temp_store();
         store.save(&[station("s0")]).unwrap();
         let path = store.path().unwrap().clone();
@@ -752,7 +849,11 @@ mod tests {
         assert!(app.favorites.is_empty());
         drop(app);
         let reloaded = FavoritesStore::with_path(path.clone()).load();
-        assert!(reloaded.is_empty(), "the modification must persist on exit");
+        assert_eq!(
+            reloaded.len(),
+            1,
+            "Drop must not auto-save; user must press S"
+        );
         std::fs::remove_file(&path).ok();
     }
 
@@ -801,5 +902,67 @@ mod tests {
         assert!(app.favorites.is_empty());
         assert!(!app.showing_favorites);
         assert_eq!(app.stations[0].id, "ris");
+    }
+
+    #[test]
+    fn key_n_sorts_by_name() {
+        let mut app = app_with_stations(0);
+        app.stations = vec![station("zebra"), station("alpha"), station("middle")];
+        app.sort_key = None;
+        press(&mut app, 'n');
+        assert_eq!(app.sort_key, Some(SortKey::Name));
+        assert_eq!(app.sort_dir, SortDir::Asc);
+        assert_eq!(app.stations[0].id, "alpha");
+        assert_eq!(app.stations[1].id, "middle");
+        assert_eq!(app.stations[2].id, "zebra");
+    }
+
+    #[test]
+    fn key_n_toggles_direction() {
+        let mut app = app_with_stations(0);
+        app.stations = vec![station("b"), station("a"), station("c")];
+        press(&mut app, 'n');
+        assert_eq!(app.stations[0].id, "a");
+        press(&mut app, 'n');
+        assert_eq!(app.sort_dir, SortDir::Desc);
+        assert_eq!(app.stations[0].id, "c");
+        assert_eq!(app.stations[2].id, "a");
+    }
+
+    #[test]
+    fn key_c_sorts_by_country() {
+        let mut app = app_with_stations(0);
+        let mut st_a = station("a");
+        st_a.country = "US".to_string();
+        let mut st_b = station("b");
+        st_b.country = "IT".to_string();
+        let mut st_c = station("c");
+        st_c.country = "DE".to_string();
+        app.stations = vec![st_a, st_b, st_c];
+        press(&mut app, 'c');
+        assert_eq!(app.sort_key, Some(SortKey::Country));
+        assert_eq!(app.stations[0].id, "c"); // DE
+        assert_eq!(app.stations[1].id, "b"); // IT
+        assert_eq!(app.stations[2].id, "a"); // US
+    }
+
+    #[test]
+    fn sort_preserves_selected_station() {
+        let mut app = app_with_stations(0);
+        app.stations = vec![station("z"), station("a"), station("m")];
+        app.selected = 2; // "m"
+        press(&mut app, 'n');
+        assert_eq!(app.stations[app.selected].id, "m");
+    }
+
+    #[test]
+    fn switching_sort_field_resets_to_ascending() {
+        let mut app = app_with_stations(0);
+        app.stations = vec![station("a"), station("b")];
+        press(&mut app, 'n');
+        press(&mut app, 'n'); // desc
+        assert_eq!(app.sort_dir, SortDir::Desc);
+        press(&mut app, 'c'); // new field
+        assert_eq!(app.sort_dir, SortDir::Asc);
     }
 }
