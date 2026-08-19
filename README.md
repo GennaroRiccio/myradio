@@ -1,14 +1,21 @@
-# myradio
+# MyRadio
 
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
 (MP3, AAC, OGG/Vorbis, FLAC, WAV), and shows the volume level in real time
-(dBFS meter + level history as a sparkline). Current version: **1.4.0**.
+(dBFS meter + level history as a sparkline). Current version: **1.5.0**.
 
 It is fully usable with the keyboard **and the mouse** (click to focus/search or
 to select and play a station, scroll wheel to navigate), ships with an animated
 splash screen (ASCII-art logo + FM tuner) and renders station artwork with
 half-blocks so it works in any terminal.
+
+## Download
+
+Pre-built binaries for Linux, Windows and macOS are available on the
+[Releases](https://github.com/GennaroRiccio/myradio/releases) page. Download
+the archive for your platform, extract it, and run the binary directly — no
+Rust toolchain required.
 
 ## Build
 
@@ -76,6 +83,11 @@ cargo run --release
 | `+` / `-` | volume |
 | `f` | add/remove the selected station as favorite |
 | `F` | show the favorites list |
+| `n` | sort results by name (press again to reverse) |
+| `c` | sort results by country (press again to reverse) |
+| `S` | save favorites to disk |
+| `r` | repeat the last search |
+| `m` | open/close the command menu |
 | `v` | toggle the audio visualizer |
 | `q` or `Ctrl-C` | quit |
 
@@ -90,11 +102,21 @@ Mouse support is enabled automatically:
 ## Favorites
 
 Press `f` on a station to add or remove it from your favorites (a `★` marks
-favorites in the list, and the station info panel shows "★ Preferito"). `F`
+favorites in the list, and the station info panel shows "★ Favorite"). `F`
 shows the favorites list. On startup the app shows your favorites in the list;
 if you have no favorites yet the results panel stays empty.
 
-Favorites are saved as JSON in the user data directory:
+**Favorites are saved manually**: press `S` to save your favorites to disk. A
+`● unsaved` indicator appears in the status bar when there are unsaved changes.
+If the favorites list is empty, saving is refused to prevent overwriting an
+existing file with an empty list. This avoids accidental data loss when
+updating the app.
+
+Results can be sorted by name (`n`) or country (`c`). Press the same key
+again to reverse the sort order. A `▲` or `▼` indicator appears in the
+column header.
+
+Favorites are stored as JSON in the user data directory:
 
 - **Linux**: `$XDG_DATA_HOME/myradio/favorites.json` (`~/.local/share/myradio/…` by default)
 - **macOS**: `~/Library/Application Support/myradio/favorites.json`

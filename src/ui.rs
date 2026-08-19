@@ -10,7 +10,7 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap,
 };
 
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, SortDir, SortKey};
 use crate::audio::PlaybackState;
 use crate::radio::Station;
 
@@ -120,7 +120,13 @@ const MENU_COLUMNS: &[MenuColumn] = &[
     },
     MenuColumn {
         title: " Favorites ",
-        items: &[("f", "add favorite"), ("F", "favorites list")],
+        items: &[
+            ("f", "add favorite"),
+            ("F", "favorites list"),
+            ("S", "save favorites"),
+            ("n", "sort by name"),
+            ("c", "sort by country"),
+        ],
     },
     MenuColumn {
         title: " Other ",
@@ -502,11 +508,11 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
             Style::new().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
-            "Nome",
+            sort_header(app, SortKey::Name, "Nome"),
             Style::new().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
-            "Paese",
+            sort_header(app, SortKey::Country, "Paese"),
             Style::new().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
@@ -551,6 +557,17 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let mut state = TableState::new().with_selected(Some(app.selected));
     frame.render_stateful_widget(table, area, &mut state);
     app.results_offset = state.offset();
+}
+
+/// Restituisce l'etichetta della colonna con eventuale indicatore di ordinamento.
+fn sort_header(app: &App, key: SortKey, label: &str) -> String {
+    match app.sort_key {
+        Some(k) if k == key => match app.sort_dir {
+            SortDir::Asc => format!("{label} ▲"),
+            SortDir::Desc => format!("{label} ▼"),
+        },
+        _ => label.to_string(),
+    }
 }
 
 fn render_info(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -763,6 +780,13 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
     )];
     spans.push(Span::raw(format!(" Volume: {:>3.0}% ", app.volume * 100.0)));
 
+    if app.favorites_dirty {
+        spans.push(Span::styled(
+            " ● unsaved ",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+    }
+
     if let Some(station) = &app.now_playing {
         spans.push(Span::styled(
             format!("→ {}", station.name),
@@ -784,7 +808,10 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
-    let text = Line::from(Span::styled(" m: menu · q: quit", Style::new().dim()));
+    let text = Line::from(Span::styled(
+        " m: menu · S: save · q: quit",
+        Style::new().dim(),
+    ));
     frame.render_widget(Paragraph::new(text), area);
 }
 
