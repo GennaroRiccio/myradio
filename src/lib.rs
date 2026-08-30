@@ -9,9 +9,11 @@ pub mod artwork;
 pub mod audio;
 pub mod error;
 pub mod favorites;
+pub mod globe;
 pub mod levels;
 pub mod radio;
 pub mod ui;
+pub mod world;
 
 pub use audio::{EngineHandle, PlaybackState};
 pub use error::AppError;

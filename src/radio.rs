@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use crate::error::AppError;
 
-/// Number of stations returned by a single search.
-const SEARCH_LIMIT: usize = 200;
+/// Number of stations returned by a single search (page size).
+pub const SEARCH_LIMIT: usize = 200;
 
 /// Static Radio Browser mirror used as the API base URL.
 const API_BASE: &str = "https://de1.api.radio-browser.info";
@@ -22,7 +22,7 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// Every field has `#[serde(default)]` so a favorites file written by another
 /// version (with missing or extra fields) still loads: deserialization never
 /// fails, preventing an app update from wiping the favorites.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Station {
     /// Unique station identifier (stationuuid).
     #[serde(default)]
@@ -45,6 +45,15 @@ pub struct Station {
     /// Country of origin.
     #[serde(default)]
     pub country: String,
+    /// ISO 3166-1 alpha-2 country code.
+    #[serde(default)]
+    pub countrycode: String,
+    /// Latitude of the station (if provided by API).
+    #[serde(default)]
+    pub geo_lat: Option<f64>,
+    /// Longitude of the station (if provided by API).
+    #[serde(default)]
+    pub geo_long: Option<f64>,
     /// Region/State of origin.
     #[serde(default)]
     pub state: String,
@@ -84,11 +93,18 @@ impl Station {
 pub trait StationProvider: Send + Sync {
     /// Search stations by name (substring) and optional tag.
     ///
+    /// `offset` is the pagination offset (0 for first page).
+    ///
     /// # Errors
     ///
     /// Returns [`AppError::Search`] if the server is unreachable or the
     /// response is invalid.
-    fn search(&self, query: &str, tag: Option<&str>) -> Result<Vec<Station>, AppError>;
+    fn search(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        offset: usize,
+    ) -> Result<Vec<Station>, AppError>;
 }
 
 /// Real provider based on the Radio Browser API.
@@ -110,7 +126,12 @@ impl Default for RadioBrowserProvider {
 }
 
 impl StationProvider for RadioBrowserProvider {
-    fn search(&self, query: &str, tag: Option<&str>) -> Result<Vec<Station>, AppError> {
+    fn search(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        offset: usize,
+    ) -> Result<Vec<Station>, AppError> {
         let tag = tag.and_then(|t| {
             let trimmed = t.trim();
             (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -122,6 +143,7 @@ impl StationProvider for RadioBrowserProvider {
             ("order", "clickcount".to_string()),
             ("reverse", "true".to_string()),
             ("limit", SEARCH_LIMIT.to_string()),
+            ("offset", offset.to_string()),
         ];
         if !query.is_empty() {
             params.push(("name", query.to_string()));
@@ -164,6 +186,12 @@ struct ApiStation {
     #[serde(default)]
     country: String,
     #[serde(default)]
+    countrycode: String,
+    #[serde(default)]
+    geo_lat: Option<f64>,
+    #[serde(default)]
+    geo_long: Option<f64>,
+    #[serde(default)]
     state: String,
     #[serde(default)]
     language: String,
@@ -193,6 +221,9 @@ fn station_from_api(station: ApiStation) -> Option<Station> {
         favicon: station.favicon,
         homepage: station.homepage,
         country: station.country,
+        countrycode: station.countrycode,
+        geo_lat: station.geo_lat,
+        geo_long: station.geo_long,
         state: station.state,
         language: station.language,
         codec: station.codec,
@@ -223,6 +254,9 @@ mod tests {
             favicon: String::new(),
             tags: "jazz, live, usa".to_string(),
             country: "United States".to_string(),
+            countrycode: "US".to_string(),
+            geo_lat: Some(39.0),
+            geo_long: Some(-98.0),
             state: "California".to_string(),
             language: "English".to_string(),
             votes: 42,
