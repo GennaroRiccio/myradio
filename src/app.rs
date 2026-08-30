@@ -14,7 +14,7 @@ use crate::audio::{DEFAULT_VOLUME, EngineHandle, PlaybackState};
 use crate::error::AppError;
 use crate::favorites::FavoritesStore;
 use crate::levels::SharedLevels;
-use crate::radio::{RadioBrowserProvider, Station, StationProvider};
+use crate::radio::{RadioBrowserProvider, SEARCH_LIMIT, Station, StationProvider};
 
 /// Async messages sent to the main loop from worker threads.
 #[derive(Debug)]
@@ -111,6 +111,9 @@ pub struct App {
     /// Direzione di ordinamento corrente.
     pub sort_dir: SortDir,
 
+    /// Offset di paginazione per la ricerca corrente.
+    pub search_offset: usize,
+
     /// Persistence of favorites on disk.
     store: FavoritesStore,
 
@@ -142,6 +145,9 @@ pub struct App {
     /// First visible row of the results table (for mapping click -> station).
     pub results_offset: usize,
 
+    /// `true` while the world map popup is expanded.
+    pub world_expanded: bool,
+
     should_exit: bool,
 }
 
@@ -167,6 +173,7 @@ impl App {
             favorites_dirty: false,
             sort_key: None,
             sort_dir: SortDir::Asc,
+            search_offset: 0,
             now_playing: None,
             playback: PlaybackState::Stopped,
             volume: DEFAULT_VOLUME,
@@ -178,6 +185,7 @@ impl App {
             splash_started: Instant::now(),
             areas: UiAreas::default(),
             results_offset: 0,
+            world_expanded: false,
             should_exit: false,
         };
         app.engine.set_volume(app.volume);
@@ -348,6 +356,19 @@ impl App {
             }
             return;
         }
+        if self.world_expanded {
+            match key.code {
+                KeyCode::Char('w' | 'W') | KeyCode::Esc => {
+                    self.world_expanded = false;
+                    return;
+                }
+                KeyCode::Char('q' | 'Q') => {
+                    self.should_exit = true;
+                    return;
+                }
+                _ => return,
+            }
+        }
         if self.editing() {
             self.handle_editing_key(key);
             return;
@@ -360,9 +381,12 @@ impl App {
             KeyCode::Char('F') => self.toggle_favorites_view(),
             KeyCode::Char('n') => self.toggle_sort(SortKey::Name),
             KeyCode::Char('c') => self.toggle_sort(SortKey::Country),
+            KeyCode::PageDown | KeyCode::Char('>') => self.next_page(),
+            KeyCode::PageUp | KeyCode::Char('<') => self.prev_page(),
             KeyCode::Char('m' | 'M') => self.toggle_menu(),
             KeyCode::Char('r') => self.run_search(),
             KeyCode::Char('S') => self.save_favorites(),
+            KeyCode::Char('w' | 'W') => self.world_expanded = true,
             KeyCode::Char('v') => self.visualizer = !self.visualizer,
             KeyCode::Char('p' | ' ') => self.toggle_play_or_play_selected(),
             KeyCode::Char('s') => self.stop(),
@@ -485,23 +509,61 @@ impl App {
         }
     }
 
-    /// Avvia una ricerca in un thread di lavoro.
+    /// Avvia una ricerca in un thread di lavoro (pagina iniziale).
     pub fn run_search(&mut self) {
+        self.search_offset = 0;
+        self.run_search_at(0);
+    }
+
+    fn run_search_at(&mut self, offset: usize) {
         let query = self.query.trim().to_string();
-        let tag = self.tag.trim();
+        let tag = self.tag.trim().to_string();
 
         self.loading = true;
         self.status = None;
         self.selected = 0;
         self.showing_favorites = false;
+        self.search_offset = offset;
 
         let tx = self.msg_tx.clone();
-        let tag = (!tag.is_empty()).then(|| tag.to_string());
+        let tag_opt = (!tag.is_empty()).then_some(tag);
         thread::spawn(move || {
             let provider = RadioBrowserProvider::default();
-            let result = provider.search(&query, tag.as_deref());
+            let result = provider.search(&query, tag_opt.as_deref(), offset);
             let _ = tx.send(Msg::SearchFinished(result));
         });
+    }
+
+    /// Pagina successiva (se non in caricamento e non sui preferiti).
+    pub fn next_page(&mut self) {
+        if self.loading || self.showing_favorites {
+            return;
+        }
+        if self.stations.len() < SEARCH_LIMIT {
+            self.status = Some("No more results".to_string());
+            return;
+        }
+        let next = self.search_offset + SEARCH_LIMIT;
+        self.run_search_at(next);
+    }
+
+    /// Pagina precedente.
+    pub fn prev_page(&mut self) {
+        if self.loading || self.showing_favorites {
+            return;
+        }
+        if self.search_offset == 0 {
+            self.status = Some("Already on first page".to_string());
+            return;
+        }
+        let prev = self.search_offset.saturating_sub(SEARCH_LIMIT);
+        self.run_search_at(prev);
+    }
+
+    /// Numero di pagina corrente (1-based).
+    #[must_use]
+    pub fn current_page(&self) -> usize {
+        self.search_offset / SEARCH_LIMIT + 1
     }
 
     /// Avvia la riproduzione della stazione selezionata.
@@ -612,6 +674,9 @@ mod tests {
             favicon: String::new(),
             homepage: String::new(),
             country: "IT".to_string(),
+            countrycode: "IT".to_string(),
+            geo_lat: None,
+            geo_long: None,
             state: String::new(),
             language: String::new(),
             codec: "MP3".to_string(),
@@ -964,5 +1029,47 @@ mod tests {
         assert_eq!(app.sort_dir, SortDir::Desc);
         press(&mut app, 'c'); // new field
         assert_eq!(app.sort_dir, SortDir::Asc);
+    }
+
+    #[test]
+    fn pagination_next_and_prev() {
+        let mut app = app_with_stations(200);
+        app.search_offset = 0;
+        app.next_page();
+        assert_eq!(app.search_offset, SEARCH_LIMIT);
+        assert_eq!(app.current_page(), 2);
+        // simulate search finished to allow prev_page
+        app.loading = false;
+        app.stations = (0..200).map(|i| station(&format!("s{i}"))).collect();
+        app.prev_page();
+        assert_eq!(app.search_offset, 0);
+        assert_eq!(app.current_page(), 1);
+    }
+
+    #[test]
+    fn pagination_prev_at_first_page_does_nothing() {
+        let mut app = app_with_stations(200);
+        app.search_offset = 0;
+        app.prev_page();
+        assert_eq!(app.search_offset, 0);
+        assert!(app.status.is_some());
+    }
+
+    #[test]
+    fn pagination_next_when_last_page_not_full_does_nothing() {
+        let mut app = app_with_stations(50);
+        app.search_offset = 0;
+        app.next_page();
+        assert_eq!(app.search_offset, 0);
+        assert!(app.status.is_some());
+    }
+
+    #[test]
+    fn pagination_blocked_when_showing_favorites() {
+        let mut app = app_with_stations(200);
+        app.search_offset = 0;
+        app.showing_favorites = true;
+        app.next_page();
+        assert_eq!(app.search_offset, 0);
     }
 }

@@ -13,6 +13,8 @@ use ratatui::widgets::{
 use crate::app::{App, Focus, SortDir, SortKey};
 use crate::audio::PlaybackState;
 use crate::radio::Station;
+use crate::world;
+use ratatui::widgets::canvas::Canvas;
 
 /// Height of the audio visualizer section.
 const VISUALIZER_HEIGHT: u16 = 12;
@@ -88,6 +90,9 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     if app.menu_open {
         render_menu(frame, area);
     }
+    if app.world_expanded {
+        render_world_popup(frame, area, app);
+    }
 }
 
 /// A menu command column: title and list of (key, description) pairs.
@@ -102,6 +107,8 @@ const MENU_COLUMNS: &[MenuColumn] = &[
         title: " Navigation ",
         items: &[
             ("↑/↓ or j/k", "move selection"),
+            ("PgUp/PgDn", "prev/next page"),
+            ("</>", "prev/next page"),
             ("Tab", "next field"),
             ("Esc", "back to results"),
             ("/ or i", "focus name"),
@@ -132,6 +139,7 @@ const MENU_COLUMNS: &[MenuColumn] = &[
         title: " Other ",
         items: &[
             ("r", "repeat search"),
+            ("w", "world map"),
             ("m", "open/close menu"),
             ("q/Ctrl-C", "quit"),
             ("mouse", "click and scroll"),
@@ -194,7 +202,7 @@ fn render_splash(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" myradio ");
+        .title(" 📻 myradio ");
     let inner = block.inner(area);
 
     let width = usize::from(inner.width);
@@ -376,11 +384,11 @@ fn centered(text: &str, width: usize, style: Style) -> Line<'static> {
 fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let title = match &app.now_playing {
         Some(station) => format!(
-            " myradio v{} By Gennaro Riccio  — now playing {} ",
+            " 📻 myradio v{} By Gennaro Riccio  — now playing {} ",
             app_version(),
             station.name
         ),
-        None => format!(" myradio v{} By Gennaro Riccio ", app_version()),
+        None => format!(" 📻 myradio v{} By Gennaro Riccio ", app_version()),
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -466,10 +474,15 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 
 fn render_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let chunks =
-        Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)]).split(area);
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
     render_results(frame, chunks[0], app);
-    render_info(frame, chunks[1], app);
+    // Right column split vertically: station info on top (25%), world globe at bottom (75%)
+    // Maximized world size for detailed globe
+    let right =
+        Layout::vertical([Constraint::Percentage(25), Constraint::Percentage(75)]).split(chunks[1]);
+    render_info(frame, right[0], app);
+    render_world(frame, right[1], app);
 }
 
 fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -477,8 +490,12 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         " Results — searching… ".to_string()
     } else if app.showing_favorites {
         format!(" Favorites ({}) ", app.stations.len())
+    } else if app.stations.is_empty() {
+        " Results (0) ".to_string()
     } else {
-        format!(" Results ({}) ", app.stations.len())
+        let start = app.search_offset + 1;
+        let end = app.search_offset + app.stations.len();
+        format!(" Results {start}-{end} [Page {}] ", app.current_page())
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -627,6 +644,69 @@ fn detail_lines(station: &Station) -> Vec<Line<'static>> {
         Line::from(format!("Homepage:  {}", station.homepage)),
         Line::from(format!("URL:       {}", station.url_resolved)),
     ]
+}
+
+fn render_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let selected = app.selected_station();
+    let title = if let Some(station) = selected {
+        let label = if !station.country.is_empty() {
+            station.country.as_str()
+        } else if !station.countrycode.is_empty() {
+            station.countrycode.as_str()
+        } else {
+            "World"
+        };
+        format!(" World — {label} [w: enlarge] ")
+    } else {
+        " World [w: enlarge] ".to_string()
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width < 10 || inner.height < 5 {
+        return;
+    }
+    let coords = selected.and_then(world::station_coords);
+    let rot = crate::globe::rotation_for(app.splash_started.elapsed());
+    let canvas = Canvas::default()
+        .x_bounds([-90.0, 90.0])
+        .y_bounds([-90.0, 90.0])
+        .paint(|ctx| {
+            crate::globe::draw_globe(ctx, rot, coords);
+        });
+    frame.render_widget(canvas, inner);
+}
+
+fn render_world_popup(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let popup = centered_rect(area, 100, 32);
+    frame.render_widget(Clear, popup);
+    let selected = app.selected_station();
+    let title = if let Some(station) = selected {
+        format!(" World — {} [w/Esc: close] ", station.country)
+    } else {
+        " World [w/Esc: close] ".to_string()
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    if inner.width < 10 || inner.height < 5 {
+        return;
+    }
+    let coords = selected.and_then(world::station_coords);
+    let rot = crate::globe::rotation_for(app.splash_started.elapsed());
+    let canvas = Canvas::default()
+        .x_bounds([-90.0, 90.0])
+        .y_bounds([-90.0, 90.0])
+        .paint(|ctx| {
+            crate::globe::draw_globe(ctx, rot, coords);
+        });
+    frame.render_widget(canvas, inner);
 }
 
 /// Thumbnail size for artwork: width limited to [`MAX_ART_WIDTH`]
@@ -809,7 +889,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " m: menu · S: save · q: quit",
+        " m: menu · S: save · w: world · PgUp/PgDn: page · q: quit",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);
@@ -912,6 +992,9 @@ mod tests {
             favicon: "http://example/art.png".to_string(),
             homepage: String::new(),
             country: "IT".to_string(),
+            countrycode: "IT".to_string(),
+            geo_lat: None,
+            geo_long: None,
             state: String::new(),
             language: String::new(),
             codec: "MP3".to_string(),

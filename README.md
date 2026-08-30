@@ -1,4 +1,4 @@
-# MyRadio
+# 📻 MyRadio
 
 A terminal UI (TUI) for listening to internet radio. Searches stations via
 [Radio Browser](https://radio-browser.info), plays them with rodio
@@ -86,6 +86,8 @@ cargo run --release
 | `n` | sort results by name (press again to reverse) |
 | `c` | sort results by country (press again to reverse) |
 | `S` | save favorites to disk |
+| `PgUp`/`PgDn` or `<`/`>` | previous/next page (200 results per page) |
+| `w` | world map (small panel + `w`/`Esc` for enlarged popup) |
 | `r` | repeat the last search |
 | `m` | open/close the command menu |
 | `v` | toggle the audio visualizer |
@@ -116,6 +118,17 @@ Results can be sorted by name (`n`) or country (`c`). Press the same key
 again to reverse the sort order. A `▲` or `▼` indicator appears in the
 column header.
 
+Search results are paginated (200 per page). Use `PgUp`/`PgDn` or `<`/`>` to
+navigate pages. The title bar shows the current range and page number
+(e.g. `Results 1-200 [Page 1]`).
+
+The right panel shows a **spherical globe** (`World`, 60% of the right column)
+with orthographic projection, graticule and `●` marker on the selected
+station's country (via `countrycode` centroid or `geo_lat`/`geo_long` when
+available). The globe rotates slowly (full rotation in ~28s) and follows the
+selection automatically. Press `w` to enlarge to a `90×28` popup, `w`/`Esc`
+to close.
+
 Favorites are stored as JSON in the user data directory:
 
 - **Linux**: `$XDG_DATA_HOME/myradio/favorites.json` (`~/.local/share/myradio/…` by default)
@@ -138,10 +151,13 @@ recorded.
 - `src/levels.rs` — shared dBFS↔percentage levels
 - `src/artwork.rs` — async favicon download, disk + memory cache, and
   half-block rendering of station artwork (works in any terminal)
+- `src/world.rs` — country centroid table and `station_coords` for the map
+- `src/globe.rs` — spherical orthographic projection, graticule and animated rotation
 - `src/app.rs` — state machine and input handling (keyboard + mouse)
 - `src/favorites.rs` — favorites persistence (JSON in the user data directory)
-- `src/ui.rs` — ratatui rendering (header, search, results, station info, audio
-  meter/history, status bar, help, animated startup splash)
+- `src/ui.rs` — ratatui rendering (header, search, results, station info, spherical
+  globe via `Canvas`/`Circle`/`Points`, audio meter/history, status bar, help, animated
+  startup splash)
 - `src/main.rs` — entry point and logging setup
 
 ## Verification
