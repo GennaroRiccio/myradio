@@ -89,9 +89,33 @@ impl Station {
     }
 }
 
+/// Advanced search filters for station queries.
+#[derive(Debug, Clone, Default)]
+pub struct SearchFilters {
+    /// ISO 3166-1 alpha-2 country code filter (e.g. "IT", "US").
+    pub countrycode: String,
+    /// Language filter (e.g. "Italian", "English").
+    pub language: String,
+    /// Codec filter (e.g. "MP3", "AAC").
+    pub codec: String,
+    /// Minimum bitrate in kbps (0 = no minimum).
+    pub min_bitrate: u32,
+}
+
+impl SearchFilters {
+    /// Returns `true` if all filters are empty/default.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.countrycode.is_empty()
+            && self.language.is_empty()
+            && self.codec.is_empty()
+            && self.min_bitrate == 0
+    }
+}
+
 /// Data source for station search.
 pub trait StationProvider: Send + Sync {
-    /// Search stations by name (substring) and optional tag.
+    /// Search stations by name (substring), optional tag, and advanced filters.
     ///
     /// `offset` is the pagination offset (0 for first page).
     ///
@@ -103,6 +127,7 @@ pub trait StationProvider: Send + Sync {
         &self,
         query: &str,
         tag: Option<&str>,
+        filters: &SearchFilters,
         offset: usize,
     ) -> Result<Vec<Station>, AppError>;
 }
@@ -130,6 +155,7 @@ impl StationProvider for RadioBrowserProvider {
         &self,
         query: &str,
         tag: Option<&str>,
+        filters: &SearchFilters,
         offset: usize,
     ) -> Result<Vec<Station>, AppError> {
         let tag = tag.and_then(|t| {
@@ -150,6 +176,18 @@ impl StationProvider for RadioBrowserProvider {
         }
         if let Some(tag) = tag {
             params.push(("tag", tag));
+        }
+        if !filters.countrycode.is_empty() {
+            params.push(("countrycode", filters.countrycode.clone()));
+        }
+        if !filters.language.is_empty() {
+            params.push(("language", filters.language.clone()));
+        }
+        if !filters.codec.is_empty() {
+            params.push(("codec", filters.codec.clone()));
+        }
+        if filters.min_bitrate > 0 {
+            params.push(("bitrate", filters.min_bitrate.to_string()));
         }
 
         let response = self

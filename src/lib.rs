@@ -10,6 +10,7 @@ pub mod audio;
 pub mod error;
 pub mod favorites;
 pub mod globe;
+pub mod history;
 pub mod levels;
 pub mod radio;
 pub mod ui;
@@ -17,4 +18,4 @@ pub mod world;
 
 pub use audio::{EngineHandle, PlaybackState};
 pub use error::AppError;
-pub use radio::{RadioBrowserProvider, Station, StationProvider};
+pub use radio::{RadioBrowserProvider, SearchFilters, Station, StationProvider};
