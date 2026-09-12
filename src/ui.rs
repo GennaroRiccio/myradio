@@ -70,7 +70,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
 
     let chunks = Layout::vertical([
         Constraint::Length(3),
-        Constraint::Length(6),
+        Constraint::Length(10),
         Constraint::Min(8),
         Constraint::Length(viz_height),
         Constraint::Length(3),
@@ -113,6 +113,7 @@ const MENU_COLUMNS: &[MenuColumn] = &[
             ("Esc", "back to results"),
             ("/ or i", "focus name"),
             ("t", "focus tag"),
+            ("o", "focus filters"),
         ],
     },
     MenuColumn {
@@ -130,6 +131,7 @@ const MENU_COLUMNS: &[MenuColumn] = &[
         items: &[
             ("f", "add favorite"),
             ("F", "favorites list"),
+            ("h", "history list"),
             ("S", "save favorites"),
             ("n", "sort by name"),
             ("c", "sort by country"),
@@ -427,44 +429,94 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let inner = block.inner(area);
     app.areas.query = Rect::new(inner.x, inner.y, inner.width, 1);
     app.areas.tag = Rect::new(inner.x, inner.y.saturating_add(1), inner.width, 1);
-
-    let (query_label, query_focused) = focus_label(app.focus == Focus::Query, "Nome", "Nome ");
-    let (tag_label, tag_focused) = focus_label(app.focus == Focus::Tag, "Tag", "Tag  ");
+    app.areas.filter_country = Rect::new(inner.x, inner.y.saturating_add(2), inner.width, 1);
+    app.areas.filter_language = Rect::new(inner.x, inner.y.saturating_add(3), inner.width, 1);
+    app.areas.filter_codec = Rect::new(inner.x, inner.y.saturating_add(4), inner.width, 1);
+    app.areas.filter_bitrate = Rect::new(inner.x, inner.y.saturating_add(5), inner.width, 1);
 
     let cursor = "▊";
-    let query_value = if query_focused {
-        format!("{}{}", app.query, cursor)
-    } else {
-        app.query.clone()
+
+    let query_focused = app.focus == Focus::Query;
+    let tag_focused = app.focus == Focus::Tag;
+    let country_focused = app.focus == Focus::FilterCountry;
+    let lang_focused = app.focus == Focus::FilterLanguage;
+    let codec_focused = app.focus == Focus::FilterCodec;
+    let bitrate_focused = app.focus == Focus::FilterBitrate;
+
+    let (query_label, _) = focus_label(query_focused, "Nome", "Nome ");
+    let (tag_label, _) = focus_label(tag_focused, "Tag", "Tag  ");
+    let (country_label, _) = focus_label(country_focused, "Paese", "Paese");
+    let (lang_label, _) = focus_label(lang_focused, "Lingua", "Lingua");
+    let (codec_label, _) = focus_label(codec_focused, "Codec", "Codec");
+    let (bitrate_label, _) = focus_label(bitrate_focused, "Bitrate", "Bitrate");
+
+    let field_value = |focused: bool, value: &str| -> String {
+        if focused {
+            format!("{value}{cursor}")
+        } else {
+            value.to_string()
+        }
     };
-    let tag_value = if tag_focused {
-        format!("{}{}", app.tag, cursor)
-    } else {
-        app.tag.clone()
+    let field_style = |focused: bool| -> Style {
+        if focused {
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new()
+        }
     };
 
-    let query_style = if query_focused {
-        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new()
-    };
-    let tag_style = if tag_focused {
-        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new()
-    };
+    // Check if any filter is active for visual indicator
+    let filters_active = !app.filter_countrycode.is_empty()
+        || !app.filter_language.is_empty()
+        || !app.filter_codec.is_empty()
+        || !app.filter_min_bitrate.is_empty();
+    let filter_dot = if filters_active { "● " } else { "  " };
 
     let text = Text::from(vec![
         Line::from(vec![
             Span::styled(query_label, Style::new().fg(Color::Cyan)),
-            Span::styled(query_value, query_style),
+            Span::styled(
+                field_value(query_focused, &app.query),
+                field_style(query_focused),
+            ),
         ]),
         Line::from(vec![
             Span::styled(tag_label, Style::new().fg(Color::Cyan)),
-            Span::styled(tag_value, tag_style),
+            Span::styled(field_value(tag_focused, &app.tag), field_style(tag_focused)),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("{filter_dot}{country_label}"),
+                Style::new().fg(Color::Cyan),
+            ),
+            Span::styled(
+                field_value(country_focused, &app.filter_countrycode),
+                field_style(country_focused),
+            ),
+            Span::raw("  "),
+            Span::styled(lang_label, Style::new().fg(Color::Cyan)),
+            Span::styled(
+                field_value(lang_focused, &app.filter_language),
+                field_style(lang_focused),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  ", Style::new().fg(Color::Cyan)),
+            Span::styled(codec_label, Style::new().fg(Color::Cyan)),
+            Span::styled(
+                field_value(codec_focused, &app.filter_codec),
+                field_style(codec_focused),
+            ),
+            Span::raw("  "),
+            Span::styled(bitrate_label, Style::new().fg(Color::Cyan)),
+            Span::styled(
+                field_value(bitrate_focused, &app.filter_min_bitrate),
+                field_style(bitrate_focused),
+            ),
+            Span::styled(" kbps", Style::new().dim()),
         ]),
         Line::from(Span::styled(
-            "Enter: search · Tab: next field · Esc: results · /: focus name · t: focus tag",
+            "Enter: search · Tab: next field · Esc: results · o: filters · r: repeat",
             Style::new().dim(),
         )),
     ]);
@@ -490,6 +542,8 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         " Results — searching… ".to_string()
     } else if app.showing_favorites {
         format!(" Favorites ({}) ", app.stations.len())
+    } else if app.showing_history {
+        format!(" History ({}) ", app.stations.len())
     } else if app.stations.is_empty() {
         " Results (0) ".to_string()
     } else {
@@ -509,6 +563,8 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
             "Loading…"
         } else if app.showing_favorites {
             "No favorites. Press f on a station to add it."
+        } else if app.showing_history {
+            "No history. Play a station to start recording."
         } else {
             "No stations. Enter a name in the search and press Enter."
         };
@@ -889,7 +945,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let text = Line::from(Span::styled(
-        " m: menu · S: save · w: world · PgUp/PgDn: page · q: quit",
+        " m: menu · S: save · w: world · h: history · o: filters · PgUp/PgDn: page · q: quit",
         Style::new().dim(),
     ));
     frame.render_widget(Paragraph::new(text), area);

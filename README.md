@@ -75,6 +75,7 @@ cargo run --release
 |---|---|
 | `/` or `i` | focus the name search box |
 | `t` | focus the tag filter |
+| `o` | focus the advanced filters |
 | `Tab` | next field |
 | `Enter` | run search / play the selected station |
 | `↑`/`↓` or `j`/`k` | move selection |
@@ -83,6 +84,7 @@ cargo run --release
 | `+` / `-` | volume |
 | `f` | add/remove the selected station as favorite |
 | `F` | show the favorites list |
+| `h` | show the listen history |
 | `n` | sort results by name (press again to reverse) |
 | `c` | sort results by country (press again to reverse) |
 | `S` | save favorites to disk |
@@ -113,6 +115,29 @@ if you have no favorites yet the results panel stays empty.
 If the favorites list is empty, saving is refused to prevent overwriting an
 existing file with an empty list. This avoids accidental data loss when
 updating the app.
+
+## History
+
+`h` shows the listen history — the last 20 stations you played, with the most
+recent at the top. History is recorded automatically every time you start
+playing a station. Press `Enter` to replay a station from history. History
+is persisted in `history.json` in the same data directory as favorites.
+
+## Advanced Filters
+
+Press `o` to focus the advanced filter fields in the search panel:
+
+| Filter | Description |
+|---|---|
+| **Paese** (Country) | ISO 3166-1 alpha-2 code (e.g. `IT`, `US`, `DE`) |
+| **Lingua** (Language) | Station language (e.g. `Italian`, `English`) |
+| **Codec** | Stream codec (e.g. `MP3`, `AAC`, `OGG`) |
+| **Bitrate** | Minimum bitrate in kbps (e.g. `128`) |
+
+Filters are sent directly to the Radio Browser API, so results are filtered
+server-side for maximum efficiency. A `●` indicator appears next to the filter
+fields when any filter is active. Clear a filter by deleting its text and
+pressing `Enter` to re-search.
 
 Results can be sorted by name (`n`) or country (`c`). Press the same key
 again to reverse the sort order. A `▲` or `▼` indicator appears in the
@@ -145,7 +170,7 @@ recorded.
 
 ## Architecture
 
-- `src/radio.rs` — Radio Browser provider and `Station` model
+- `src/radio.rs` — Radio Browser provider, `Station` model and `SearchFilters`
 - `src/audio.rs` — rodio engine on a dedicated thread, interruptible/rewindable
   network reader, `LevelSource` for real-time level sampling
 - `src/levels.rs` — shared dBFS↔percentage levels
@@ -155,7 +180,8 @@ recorded.
 - `src/globe.rs` — spherical orthographic projection, graticule and animated rotation
 - `src/app.rs` — state machine and input handling (keyboard + mouse)
 - `src/favorites.rs` — favorites persistence (JSON in the user data directory)
-- `src/ui.rs` — ratatui rendering (header, search, results, station info, spherical
+- `src/history.rs` — listen history persistence (last 20 stations played)
+- `src/ui.rs` — ratatui rendering (header, search + filters, results, station info, spherical
   globe via `Canvas`/`Circle`/`Points`, audio meter/history, status bar, help, animated
   startup splash)
 - `src/main.rs` — entry point and logging setup

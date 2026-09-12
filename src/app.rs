@@ -13,8 +13,9 @@ use crate::artwork::ArtworkStore;
 use crate::audio::{DEFAULT_VOLUME, EngineHandle, PlaybackState};
 use crate::error::AppError;
 use crate::favorites::FavoritesStore;
+use crate::history::HistoryStore;
 use crate::levels::SharedLevels;
-use crate::radio::{RadioBrowserProvider, SEARCH_LIMIT, Station, StationProvider};
+use crate::radio::{RadioBrowserProvider, SEARCH_LIMIT, SearchFilters, Station, StationProvider};
 
 /// Async messages sent to the main loop from worker threads.
 #[derive(Debug)]
@@ -41,6 +42,14 @@ pub enum Focus {
     Query,
     /// Tag filter field.
     Tag,
+    /// Country code filter field.
+    FilterCountry,
+    /// Language filter field.
+    FilterLanguage,
+    /// Codec filter field.
+    FilterCodec,
+    /// Minimum bitrate filter field.
+    FilterBitrate,
     /// Results table.
     Results,
 }
@@ -70,6 +79,14 @@ pub struct UiAreas {
     pub query: Rect,
     /// Riga del campo di filtro per tag.
     pub tag: Rect,
+    /// Riga del campo filtro paese.
+    pub filter_country: Rect,
+    /// Riga del campo filtro lingua.
+    pub filter_language: Rect,
+    /// Riga del campo filtro codec.
+    pub filter_codec: Rect,
+    /// Riga del campo filtro bitrate.
+    pub filter_bitrate: Rect,
     /// Area interna della tabella dei risultati.
     pub results: Rect,
 }
@@ -84,6 +101,14 @@ pub struct App {
     pub query: String,
     /// Testo del campo di filtro per tag.
     pub tag: String,
+    /// Filtro per codice paese ISO (es. "IT", "US").
+    pub filter_countrycode: String,
+    /// Filtro per lingua (es. "Italian", "English").
+    pub filter_language: String,
+    /// Filtro per codec (es. "MP3", "AAC").
+    pub filter_codec: String,
+    /// Filtro per bitrate minimo in kbps.
+    pub filter_min_bitrate: String,
     /// Campo della UI attualmente in focus.
     pub focus: Focus,
 
@@ -99,6 +124,8 @@ pub struct App {
     pub search_results: Vec<Station>,
     /// `true` if the table shows favorites instead of results.
     pub showing_favorites: bool,
+    /// `true` if the table shows listen history instead of results.
+    pub showing_history: bool,
     /// `true` while the command menu is open.
     pub menu_open: bool,
     /// Index of the selected station.
@@ -116,6 +143,10 @@ pub struct App {
 
     /// Persistence of favorites on disk.
     store: FavoritesStore,
+    /// Persistence of listen history on disk.
+    history_store: HistoryStore,
+    /// Listen history entries (most recent first).
+    pub history: Vec<crate::history::HistoryEntry>,
 
     /// Station being played, if any.
     pub now_playing: Option<Station>,
@@ -161,13 +192,20 @@ impl App {
             engine,
             query: String::new(),
             tag: String::new(),
+            filter_countrycode: String::new(),
+            filter_language: String::new(),
+            filter_codec: String::new(),
+            filter_min_bitrate: String::new(),
             focus: Focus::Query,
             stations: Vec::new(),
             favorites: Vec::new(),
             search_results: Vec::new(),
             showing_favorites: false,
+            showing_history: false,
             menu_open: false,
             store: FavoritesStore::new(),
+            history_store: HistoryStore::new(),
+            history: Vec::new(),
             selected: 0,
             loading: false,
             favorites_dirty: false,
@@ -209,10 +247,18 @@ impl App {
         self.stations.get(self.selected)
     }
 
-    /// Returns `true` if a search field is being edited.
+    /// Returns `true` if a search/filter field is being edited.
     #[must_use]
     pub fn editing(&self) -> bool {
-        matches!(self.focus, Focus::Query | Focus::Tag)
+        matches!(
+            self.focus,
+            Focus::Query
+                | Focus::Tag
+                | Focus::FilterCountry
+                | Focus::FilterLanguage
+                | Focus::FilterCodec
+                | Focus::FilterBitrate
+        )
     }
 
     /// Returns `true` if the station is in favorites.
@@ -234,8 +280,20 @@ impl App {
     /// Mostra la lista dei preferiti nella tabella dei risultati.
     pub fn show_favorites(&mut self) {
         self.showing_favorites = true;
+        self.showing_history = false;
         self.loading = false;
         self.stations = self.favorites.clone();
+        self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+        self.apply_sort();
+    }
+
+    /// Mostra lo storico ascolti nella tabella dei risultati.
+    pub fn show_history(&mut self) {
+        self.history = self.history_store.load();
+        self.showing_history = true;
+        self.showing_favorites = false;
+        self.loading = false;
+        self.stations = self.history.iter().map(|e| e.station.clone()).collect();
         self.selected = self.selected.min(self.stations.len().saturating_sub(1));
         self.apply_sort();
     }
@@ -249,6 +307,30 @@ impl App {
             self.apply_sort();
         } else {
             self.show_favorites();
+        }
+    }
+
+    /// Alterna la tabella tra storico e ultimi risultati di ricerca.
+    pub fn toggle_history_view(&mut self) {
+        if self.showing_history {
+            self.showing_history = false;
+            self.stations = self.search_results.clone();
+            self.selected = self.selected.min(self.stations.len().saturating_sub(1));
+            self.apply_sort();
+        } else {
+            self.show_history();
+        }
+    }
+
+    /// Costruisce i filtri di ricerca dai campi della UI.
+    #[must_use]
+    pub fn build_filters(&self) -> SearchFilters {
+        let min_bitrate = self.filter_min_bitrate.trim().parse().unwrap_or(0);
+        SearchFilters {
+            countrycode: self.filter_countrycode.trim().to_string(),
+            language: self.filter_language.trim().to_string(),
+            codec: self.filter_codec.trim().to_string(),
+            min_bitrate,
         }
     }
 
@@ -377,8 +459,10 @@ impl App {
             KeyCode::Char('q' | 'Q') => self.should_exit = true,
             KeyCode::Char('/' | 'i') | KeyCode::Esc => self.focus = Focus::Query,
             KeyCode::Char('t') => self.focus = Focus::Tag,
+            KeyCode::Char('o') => self.focus = Focus::FilterCountry,
             KeyCode::Char('f') => self.toggle_favorite(),
             KeyCode::Char('F') => self.toggle_favorites_view(),
+            KeyCode::Char('h') => self.toggle_history_view(),
             KeyCode::Char('n') => self.toggle_sort(SortKey::Name),
             KeyCode::Char('c') => self.toggle_sort(SortKey::Country),
             KeyCode::PageDown | KeyCode::Char('>') => self.next_page(),
@@ -400,34 +484,61 @@ impl App {
         }
     }
 
-    /// Gestisce i tasti durante l'editing dei campi di ricerca.
+    /// Gestisce i tasti durante l'editing dei campi di ricerca/filtro.
     fn handle_editing_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.focus = Focus::Results,
-            KeyCode::Backspace => {
-                let _ = match self.focus {
-                    Focus::Query => self.query.pop(),
-                    Focus::Tag => self.tag.pop(),
-                    Focus::Results => None,
-                };
-            }
+            KeyCode::Backspace => match self.focus {
+                Focus::Query => {
+                    self.query.pop();
+                }
+                Focus::Tag => {
+                    self.tag.pop();
+                }
+                Focus::FilterCountry => {
+                    self.filter_countrycode.pop();
+                }
+                Focus::FilterLanguage => {
+                    self.filter_language.pop();
+                }
+                Focus::FilterCodec => {
+                    self.filter_codec.pop();
+                }
+                Focus::FilterBitrate => {
+                    self.filter_min_bitrate.pop();
+                }
+                Focus::Results => {}
+            },
             KeyCode::Enter => self.run_search(),
             KeyCode::Tab => self.focus = self.next_focus(),
             KeyCode::Char(ch) => match self.focus {
                 Focus::Query => self.query.push(ch),
                 Focus::Tag => self.tag.push(ch),
+                Focus::FilterCountry => self.filter_countrycode.push(ch),
+                Focus::FilterLanguage => self.filter_language.push(ch),
+                Focus::FilterCodec => self.filter_codec.push(ch),
+                Focus::FilterBitrate => {
+                    if ch.is_ascii_digit() {
+                        self.filter_min_bitrate.push(ch);
+                    }
+                }
                 Focus::Results => {}
             },
             _ => {}
         }
     }
 
-    /// Passa al campo successivo nel ciclo Query -> Tag -> Risultati.
+    /// Passa al campo successivo nel ciclo `Query` -> `Tag` -> `FilterCountry` -> `FilterLanguage`
+    /// -> `FilterCodec` -> `FilterBitrate` -> `Results`.
     #[must_use]
     fn next_focus(&self) -> Focus {
         match self.focus {
             Focus::Query => Focus::Tag,
-            Focus::Tag => Focus::Results,
+            Focus::Tag => Focus::FilterCountry,
+            Focus::FilterCountry => Focus::FilterLanguage,
+            Focus::FilterLanguage => Focus::FilterCodec,
+            Focus::FilterCodec => Focus::FilterBitrate,
+            Focus::FilterBitrate => Focus::Results,
             Focus::Results => Focus::Query,
         }
     }
@@ -466,6 +577,14 @@ impl App {
             self.focus = Focus::Query;
         } else if self.areas.tag.contains(position) {
             self.focus = Focus::Tag;
+        } else if self.areas.filter_country.contains(position) {
+            self.focus = Focus::FilterCountry;
+        } else if self.areas.filter_language.contains(position) {
+            self.focus = Focus::FilterLanguage;
+        } else if self.areas.filter_codec.contains(position) {
+            self.focus = Focus::FilterCodec;
+        } else if self.areas.filter_bitrate.contains(position) {
+            self.focus = Focus::FilterBitrate;
         } else if self.areas.results.contains(position) {
             self.focus = Focus::Results;
             if self.select_row_at(position.y, self.areas.results) {
@@ -518,18 +637,20 @@ impl App {
     fn run_search_at(&mut self, offset: usize) {
         let query = self.query.trim().to_string();
         let tag = self.tag.trim().to_string();
+        let filters = self.build_filters();
 
         self.loading = true;
         self.status = None;
         self.selected = 0;
         self.showing_favorites = false;
+        self.showing_history = false;
         self.search_offset = offset;
 
         let tx = self.msg_tx.clone();
         let tag_opt = (!tag.is_empty()).then_some(tag);
         thread::spawn(move || {
             let provider = RadioBrowserProvider::default();
-            let result = provider.search(&query, tag_opt.as_deref(), offset);
+            let result = provider.search(&query, tag_opt.as_deref(), &filters, offset);
             let _ = tx.send(Msg::SearchFinished(result));
         });
     }
@@ -575,6 +696,7 @@ impl App {
         self.playback = PlaybackState::Connecting;
         self.status = None;
         self.levels.reset();
+        self.history_store.record(&station);
         self.engine.play(station, self.levels.clone());
     }
 
@@ -627,6 +749,7 @@ impl App {
                     self.search_results = stations.clone();
                     self.stations = stations;
                     self.showing_favorites = false;
+                    self.showing_history = false;
                     self.selected = 0;
                     self.loading = false;
                     self.apply_sort();
