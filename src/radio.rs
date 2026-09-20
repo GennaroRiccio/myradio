@@ -121,7 +121,7 @@ pub fn resolve_country(input: &str) -> (Option<String>, Option<String>) {
         return (None, None);
     }
     // 2-letter ISO code
-    if trimmed.chars().count() == 2 {
+    if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
         let code = match trimmed.to_ascii_uppercase().as_str() {
             "UK" => "GB".to_string(),
             other => other.to_string(),
