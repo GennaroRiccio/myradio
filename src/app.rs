@@ -101,9 +101,9 @@ pub struct App {
     pub query: String,
     /// Testo del campo di filtro per tag.
     pub tag: String,
-    /// Filtro per codice paese ISO (es. "IT", "US").
-    pub filter_countrycode: String,
-    /// Filtro per lingua (es. "Italian", "English").
+    /// Filtro per paese (nome o codice ISO, es. "Italy", "IT", "Italia").
+    pub filter_country: String,
+    /// Filtro per lingua (es. "Italian", "italiano", "English").
     pub filter_language: String,
     /// Filtro per codec (es. "MP3", "AAC").
     pub filter_codec: String,
@@ -192,7 +192,7 @@ impl App {
             engine,
             query: String::new(),
             tag: String::new(),
-            filter_countrycode: String::new(),
+            filter_country: String::new(),
             filter_language: String::new(),
             filter_codec: String::new(),
             filter_min_bitrate: String::new(),
@@ -327,7 +327,7 @@ impl App {
     pub fn build_filters(&self) -> SearchFilters {
         let min_bitrate = self.filter_min_bitrate.trim().parse().unwrap_or(0);
         SearchFilters {
-            countrycode: self.filter_countrycode.trim().to_string(),
+            country: self.filter_country.trim().to_string(),
             language: self.filter_language.trim().to_string(),
             codec: self.filter_codec.trim().to_string(),
             min_bitrate,
@@ -496,7 +496,7 @@ impl App {
                     self.tag.pop();
                 }
                 Focus::FilterCountry => {
-                    self.filter_countrycode.pop();
+                    self.filter_country.pop();
                 }
                 Focus::FilterLanguage => {
                     self.filter_language.pop();
@@ -514,7 +514,7 @@ impl App {
             KeyCode::Char(ch) => match self.focus {
                 Focus::Query => self.query.push(ch),
                 Focus::Tag => self.tag.push(ch),
-                Focus::FilterCountry => self.filter_countrycode.push(ch),
+                Focus::FilterCountry => self.filter_country.push(ch),
                 Focus::FilterLanguage => self.filter_language.push(ch),
                 Focus::FilterCodec => self.filter_codec.push(ch),
                 Focus::FilterBitrate => {

@@ -129,8 +129,8 @@ Press `o` to focus the advanced filter fields in the search panel:
 
 | Filter | Description |
 |---|---|
-| **Paese** (Country) | ISO 3166-1 alpha-2 code (e.g. `IT`, `US`, `DE`) |
-| **Lingua** (Language) | Station language (e.g. `Italian`, `English`) |
+| **Paese** (Country) | Country name or ISO code (e.g. `Italy`, `Italia`, `IT`, `US`, `DE`) |
+| **Lingua** (Language) | Station language (e.g. `Italian`, `italiano`, `English`, `inglese`) |
 | **Codec** | Stream codec (e.g. `MP3`, `AAC`, `OGG`) |
 | **Bitrate** | Minimum bitrate in kbps (e.g. `128`) |
 
