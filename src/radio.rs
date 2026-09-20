@@ -92,9 +92,9 @@ impl Station {
 /// Advanced search filters for station queries.
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
-    /// ISO 3166-1 alpha-2 country code filter (e.g. "IT", "US").
-    pub countrycode: String,
-    /// Language filter (e.g. "Italian", "English").
+    /// Country name or ISO 3166-1 alpha-2 code (e.g. "Italy", "IT", "Italia").
+    pub country: String,
+    /// Language (e.g. "Italian", "italiano", "English").
     pub language: String,
     /// Codec filter (e.g. "MP3", "AAC").
     pub codec: String,
@@ -106,10 +106,151 @@ impl SearchFilters {
     /// Returns `true` if all filters are empty/default.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.countrycode.is_empty()
+        self.country.is_empty()
             && self.language.is_empty()
             && self.codec.is_empty()
             && self.min_bitrate == 0
+    }
+}
+
+/// Resolves user country input to either an ISO 2-letter code or a country name.
+#[must_use]
+pub fn resolve_country(input: &str) -> (Option<String>, Option<String>) {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return (None, None);
+    }
+    // 2-letter ISO code
+    if trimmed.chars().count() == 2 {
+        let code = match trimmed.to_ascii_uppercase().as_str() {
+            "UK" => "GB".to_string(),
+            other => other.to_string(),
+        };
+        return (Some(code), None);
+    }
+    let lower = trimmed.to_lowercase();
+    let code = match lower.as_str() {
+        "italia" | "italy" => Some("IT"),
+        "germania" | "germany" | "deutschland" => Some("DE"),
+        "francia" | "france" => Some("FR"),
+        "spagna" | "spain" | "españa" => Some("ES"),
+        "stati uniti" | "united states" | "united states of america" | "usa" | "america" => {
+            Some("US")
+        }
+        "regno unito" | "united kingdom" | "uk" | "great britain" | "england" | "inghilterra" => {
+            Some("GB")
+        }
+        "svizzera" | "switzerland" | "schweiz" => Some("CH"),
+        "austria" => Some("AT"),
+        "olanda" | "paesi bassi" | "netherlands" | "holland" => Some("NL"),
+        "belgio" | "belgium" => Some("BE"),
+        "brasile" | "brazil" => Some("BR"),
+        "canada" => Some("CA"),
+        "australia" => Some("AU"),
+        "giappone" | "japan" => Some("JP"),
+        "cina" | "china" => Some("CN"),
+        "russia" | "federazione russa" | "russian federation" => Some("RU"),
+        "argentina" => Some("AR"),
+        "messico" | "mexico" => Some("MX"),
+        "portogallo" | "portugal" => Some("PT"),
+        "grecia" | "greece" => Some("GR"),
+        "polonia" | "poland" => Some("PL"),
+        "svezia" | "sweden" => Some("SE"),
+        "norvegia" | "norway" => Some("NO"),
+        "danimarca" | "denmark" => Some("DK"),
+        "finlandia" | "finland" => Some("FI"),
+        "irlanda" | "ireland" => Some("IE"),
+        "ucraina" | "ukraine" => Some("UA"),
+        "turchia" | "turkey" => Some("TR"),
+        "romania" => Some("RO"),
+        "ungheria" | "hungary" => Some("HU"),
+        "croazia" | "croatia" => Some("HR"),
+        "serbia" => Some("RS"),
+        "slovenia" => Some("SI"),
+        "slovacchia" | "slovakia" => Some("SK"),
+        "repubblica ceca" | "cechia" | "czechia" | "czech republic" => Some("CZ"),
+        "india" => Some("IN"),
+        "marocco" | "morocco" => Some("MA"),
+        "egitto" | "egypt" => Some("EG"),
+        "tunisia" => Some("TN"),
+        "algeria" => Some("DZ"),
+        "sudafrica" | "south africa" => Some("ZA"),
+        "colombia" => Some("CO"),
+        "cile" | "chile" => Some("CL"),
+        "peru" | "perù" => Some("PE"),
+        "venezuela" => Some("VE"),
+        "san marino" => Some("SM"),
+        "vaticano" | "vatican" | "vatican city" => Some("VA"),
+        "israele" | "israel" => Some("IL"),
+        "nuova zelanda" | "new zealand" => Some("NZ"),
+        "albania" => Some("AL"),
+        "bulgaria" => Some("BG"),
+        "bosnia" | "bosnia ed erzegovina" | "bosnia and herzegovina" => Some("BA"),
+        "montenegro" => Some("ME"),
+        "macedonia" | "macedonia del nord" | "north macedonia" => Some("MK"),
+        "islanda" | "iceland" => Some("IS"),
+        "cipro" | "cyprus" => Some("CY"),
+        "malta" => Some("MT"),
+        "lussemburgo" | "luxembourg" => Some("LU"),
+        "monaco" => Some("MC"),
+        "liechtenstein" => Some("LI"),
+        "andorra" => Some("AD"),
+        "estonia" => Some("EE"),
+        "lettonia" | "latvia" => Some("LV"),
+        "lituania" | "lithuania" => Some("LT"),
+        "corea del sud" | "south korea" => Some("KR"),
+        "taiwan" => Some("TW"),
+        "filippine" | "philippines" => Some("PH"),
+        "indonesia" => Some("ID"),
+        "thailandia" | "thailand" => Some("TH"),
+        "vietnam" => Some("VN"),
+        "uruguay" => Some("UY"),
+        "paraguay" => Some("PY"),
+        "ecuador" => Some("EC"),
+        "cuba" => Some("CU"),
+        "porto rico" | "puerto rico" => Some("PR"),
+        _ => None,
+    };
+    if let Some(code) = code {
+        (Some(code.to_string()), None)
+    } else {
+        (None, Some(trimmed.to_string()))
+    }
+}
+
+/// Normalizes user language input to Radio Browser language name.
+#[must_use]
+pub fn resolve_language(input: &str) -> String {
+    let lower = input.trim().to_lowercase();
+    match lower.as_str() {
+        "italiano" | "italian" | "it" => "italian".to_string(),
+        "inglese" | "english" | "en" => "english".to_string(),
+        "spagnolo" | "español" | "spanish" | "es" => "spanish".to_string(),
+        "tedesco" | "deutsch" | "german" | "de" => "german".to_string(),
+        "francese" | "français" | "french" | "fr" => "french".to_string(),
+        "russo" | "russian" | "ru" => "russian".to_string(),
+        "portoghese" | "portuguese" | "pt" => "portuguese".to_string(),
+        "olandese" | "dutch" | "nl" => "dutch".to_string(),
+        "greco" | "greek" | "el" => "greek".to_string(),
+        "polacco" | "polish" | "pl" => "polish".to_string(),
+        "arabo" | "arabic" | "ar" => "arabic".to_string(),
+        "cinese" | "chinese" | "zh" => "chinese".to_string(),
+        "giapponese" | "japanese" | "ja" => "japanese".to_string(),
+        "turco" | "turkish" | "tr" => "turkish".to_string(),
+        "ucraino" | "ukrainian" | "uk" => "ukrainian".to_string(),
+        "rumeno" | "romanian" | "ro" => "romanian".to_string(),
+        "ungherese" | "hungarian" | "hu" => "hungarian".to_string(),
+        "croato" | "croatian" | "hr" => "croatian".to_string(),
+        "svedese" | "swedish" | "sv" => "swedish".to_string(),
+        "norvegese" | "norwegian" | "no" => "norwegian".to_string(),
+        "danese" | "danish" | "da" => "danish".to_string(),
+        "finlandese" | "finnish" | "fi" => "finnish".to_string(),
+        "ceco" | "czech" | "cs" => "czech".to_string(),
+        "slovacco" | "slovak" | "sk" => "slovak".to_string(),
+        "bulgaro" | "bulgarian" | "bg" => "bulgarian".to_string(),
+        "serbo" | "serbian" | "sr" => "serbian".to_string(),
+        "hindi" | "hi" => "hindi".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -177,17 +318,22 @@ impl StationProvider for RadioBrowserProvider {
         if let Some(tag) = tag {
             params.push(("tag", tag));
         }
-        if !filters.countrycode.is_empty() {
-            params.push(("countrycode", filters.countrycode.clone()));
+        if !filters.country.is_empty() {
+            let (code, name) = resolve_country(&filters.country);
+            if let Some(c) = code {
+                params.push(("countrycode", c));
+            } else if let Some(n) = name {
+                params.push(("country", n));
+            }
         }
         if !filters.language.is_empty() {
-            params.push(("language", filters.language.clone()));
+            params.push(("language", resolve_language(&filters.language)));
         }
         if !filters.codec.is_empty() {
-            params.push(("codec", filters.codec.clone()));
+            params.push(("codec", filters.codec.trim().to_lowercase()));
         }
         if filters.min_bitrate > 0 {
-            params.push(("bitrate", filters.min_bitrate.to_string()));
+            params.push(("bitrateMin", filters.min_bitrate.to_string()));
         }
 
         let response = self
@@ -330,5 +476,54 @@ mod tests {
         let mut empty = sample_api_station();
         empty.url_resolved = "  ".to_string();
         assert!(station_from_api(empty).is_none());
+    }
+
+    #[test]
+    fn search_filters_is_empty() {
+        use super::SearchFilters;
+        let default_filters = SearchFilters::default();
+        assert!(default_filters.is_empty());
+
+        let with_country = SearchFilters {
+            country: "IT".to_string(),
+            ..Default::default()
+        };
+        assert!(!with_country.is_empty());
+    }
+
+    #[test]
+    fn resolves_country_inputs() {
+        use super::resolve_country;
+        assert_eq!(resolve_country(""), (None, None));
+        assert_eq!(resolve_country("  "), (None, None));
+        assert_eq!(resolve_country("it"), (Some("IT".to_string()), None));
+        assert_eq!(resolve_country("IT"), (Some("IT".to_string()), None));
+        assert_eq!(resolve_country("uk"), (Some("GB".to_string()), None));
+        assert_eq!(resolve_country("Italy"), (Some("IT".to_string()), None));
+        assert_eq!(resolve_country("italia"), (Some("IT".to_string()), None));
+        assert_eq!(resolve_country("germany"), (Some("DE".to_string()), None));
+        assert_eq!(resolve_country("germania"), (Some("DE".to_string()), None));
+        assert_eq!(
+            resolve_country("United States"),
+            (Some("US".to_string()), None)
+        );
+        assert_eq!(resolve_country("usa"), (Some("US".to_string()), None));
+        assert_eq!(
+            resolve_country("CustomCountry"),
+            (None, Some("CustomCountry".to_string()))
+        );
+    }
+
+    #[test]
+    fn resolves_language_inputs() {
+        use super::resolve_language;
+        assert_eq!(resolve_language("Italian"), "italian");
+        assert_eq!(resolve_language("italiano"), "italian");
+        assert_eq!(resolve_language("IT"), "italian");
+        assert_eq!(resolve_language("English"), "english");
+        assert_eq!(resolve_language("inglese"), "english");
+        assert_eq!(resolve_language("EN"), "english");
+        assert_eq!(resolve_language("french"), "french");
+        assert_eq!(resolve_language("francese"), "french");
     }
 }

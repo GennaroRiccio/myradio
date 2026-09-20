@@ -466,7 +466,7 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     };
 
     // Check if any filter is active for visual indicator
-    let filters_active = !app.filter_countrycode.is_empty()
+    let filters_active = !app.filter_country.is_empty()
         || !app.filter_language.is_empty()
         || !app.filter_codec.is_empty()
         || !app.filter_min_bitrate.is_empty();
@@ -490,7 +490,7 @@ fn render_search(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
                 Style::new().fg(Color::Cyan),
             ),
             Span::styled(
-                field_value(country_focused, &app.filter_countrycode),
+                field_value(country_focused, &app.filter_country),
                 field_style(country_focused),
             ),
             Span::raw("  "),
