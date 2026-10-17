@@ -658,6 +658,6 @@ mod tests {
 
         let (current, history) = levels.snapshot();
         assert!(current > 0.0, "expected level > 0, got {current}");
-        assert!(!history.is_empty());
+        assert_ne!(history, Vec::<u64>::new());
     }
 }

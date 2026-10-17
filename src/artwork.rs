@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn handles_zero_dimensions() {
         let img = RgbaImage::new(1, 1);
-        assert!(art_lines(&img, 0, 5).is_empty());
-        assert!(art_lines(&img, 5, 0).is_empty());
+        assert_eq!(art_lines(&img, 0, 5), Vec::new());
+        assert_eq!(art_lines(&img, 5, 0), Vec::new());
     }
 }
