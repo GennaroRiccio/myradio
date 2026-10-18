@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn load_missing_file_returns_empty() {
         let store = FavoritesStore::with_path(temp_path("missing"));
-        assert!(store.load().is_empty());
+        assert_eq!(store.load(), Vec::new());
     }
 
     #[test]
@@ -198,7 +198,7 @@ mod tests {
         let path = temp_path("corrupt");
         std::fs::write(&path, "non-json{{").unwrap();
         let store = FavoritesStore::with_path(path.clone());
-        assert!(store.load().is_empty());
+        assert_eq!(store.load(), Vec::new());
         std::fs::remove_file(&path).ok();
     }
 

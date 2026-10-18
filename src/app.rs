@@ -944,7 +944,7 @@ mod tests {
         app.store = temp_store();
         press(&mut app, 'f');
         press(&mut app, 'f');
-        assert!(app.favorites.is_empty());
+        assert_eq!(app.favorites, Vec::new());
         assert!(!app.is_favorite(&station("s0")));
     }
 
@@ -1002,7 +1002,7 @@ mod tests {
         app.store = temp_store();
         app.load_favorites();
         assert!(!app.showing_favorites);
-        assert!(app.stations.is_empty());
+        assert_eq!(app.stations, Vec::new());
     }
 
     #[test]
@@ -1034,7 +1034,7 @@ mod tests {
         app.favorites = FavoritesStore::with_path(path.clone()).load();
         app.selected = 0;
         press(&mut app, 'f');
-        assert!(app.favorites.is_empty());
+        assert_eq!(app.favorites, Vec::new());
         drop(app);
         let reloaded = FavoritesStore::with_path(path.clone()).load();
         assert_eq!(
@@ -1087,7 +1087,7 @@ mod tests {
         app.show_favorites();
         assert!(app.showing_favorites);
         press(&mut app, 'f');
-        assert!(app.favorites.is_empty());
+        assert_eq!(app.favorites, Vec::new());
         assert!(!app.showing_favorites);
         assert_eq!(app.stations[0].id, "ris");
     }
